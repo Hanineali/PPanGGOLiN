@@ -1206,3 +1206,19 @@ class Organism(MetaFeatures):
                 partition_to_gene[gene.family.named_partition].add(gene)
 
         return partition_to_gene
+
+    class Intergenic(Feature):
+        def __init__(self, intergenic_id: str):
+            """Constructor method
+
+            :param intergenic_id: Identifier of the gene
+            """
+            super().__init__(intergenic_id)
+            self.neighbors = None
+            self.source = None
+            self.target = None
+            self.offset = None
+
+
+
+
