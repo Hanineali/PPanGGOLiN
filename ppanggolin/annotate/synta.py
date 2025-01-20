@@ -16,7 +16,7 @@ from pathlib import Path
 from pyrodigal import GeneFinder, Sequence
 
 # local libraries
-from ppanggolin.genome import Organism, Gene, RNA, Contig
+from ppanggolin.genome import Organism, Gene, RNA, Contig, Intergenic
 from ppanggolin.utils import is_compressed, read_compressed_or_not
 
 contig_counter: Value = Value("i", 0)
@@ -539,11 +539,81 @@ def annotate_organism(
     genes = overlap_filter(genes, allow_overlap=allow_overlap)
 
     for contig_name, genes in genes.items():
+
         contig = org.get(contig_name)
         contig.is_circular = True if contig.name in circular_contigs else False
+        prev_stop = None  # Keep track of the previous gene's end position
+        prev_strand = None  # Should we keep track of the previous gene's strand and compare it with the next gene
+        prev_gene = None  # Reference to the previous gene
+        offset= 10
+
         for gene in genes:
             gene.add_sequence(get_dna_sequence(contig_sequences[contig.name], gene))
+            "create the intergenic instance"
+            if prev_stop is not None:
+                if prev_stop < gene.start - 1:  # Non-overlapping region
+                    intergenic_start = prev_stop + 1
+                    intergenic_end = gene.start - 1
+                    intergenic_seq = contig_sequences[contig.name][intergenic_start : intergenic_end + 1]
+
+                    # handle orientation
+
+
+                    # Create Intergenic instance
+                    intergenic = Intergenic(intergenic_id=
+                        f"{prev_gene.ID} | {gene.ID}"
+                    )
+                    intergenic.fill_annotations(
+                        start=intergenic_start,
+                        stop=intergenic_end,
+                        coordinates=[(intergenic_start, intergenic_end)],
+                    )
+                    intergenic.dna = intergenic_seq
+                    intergenic.fill_parents(org, contig)
+
+                    # Should we add 'add_intergenic' method to Contig?
+                    contig.add_intergenic(intergenic)
+
+                else:
+                    # Handle overlapping regions (e.g., apply an offset or ignore overlap)
+                    overlap_start = prev_stop + 1
+                    overlap_end = gene.start - 1
+                    if overlap_end >= overlap_start:
+                        logging.warning(
+                            f"Overlapping intergenic region between genes {prev_gene.ID} and {gene.ID} in contig {contig.name}. Adjusting with offset."
+                        )
+                        adjusted_start = overlap_start + offset # Adjust start with an offset
+                        adjusted_end = overlap_end + offset # Adjust end with an offset
+                        if adjusted_start <= adjusted_end:
+                            intergenic_seq = contig_sequences[contig.name][adjusted_start : adjusted_end +1]
+
+                            # Handle orientation for overlap
+
+
+                            # Create Intergenic instance
+                            intergenic = Intergenic( intergenic_id=
+                                f"{prev_gene.ID} | {adjusted_start}_{adjusted_end}"
+                            )
+                            intergenic.fill_annotations(
+                                start=adjusted_start,
+                                stop=adjusted_end,
+                                strand = None,
+                                product="Adjusted Intergenic region",
+                                coordinates=[(adjusted_start, adjusted_end)],
+                            )
+                            intergenic.dna = intergenic_seq
+                            intergenic.fill_parents(org, contig)
+                            contig.add_intergenic(intergenic)
+
+            # Update `prev_stop`, `prev_strand`, and `prev_gene` for the next iteration
+            prev_stop = gene.stop
+            prev_gene = gene
+
             gene.fill_parents(org, contig)
+            if prev_stop is None:
+                prev_stop = gene.end
+
+
             if isinstance(gene, Gene):
                 contig.add(gene)
             elif isinstance(gene, RNA):
