@@ -21,7 +21,6 @@ from ppanggolin.utils import is_compressed, read_compressed_or_not
 from ppanggolin.annotate.annotate import create_intergenic
 
 contig_counter: Value = Value("i", 0)
-.
 
 def init_contig_counter(value: Value):
     """Initialize the contig counter for later use"""
