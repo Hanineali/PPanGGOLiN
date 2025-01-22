@@ -26,6 +26,7 @@ from ppanggolin.annotate.synta import (
     get_dna_sequence,
     init_contig_counter,
     contig_counter,
+    process_intergenic_regions
 )
 from ppanggolin.pangenome import Pangenome
 from ppanggolin.genome import Organism, Gene, RNA, Contig, Intergenic
@@ -840,6 +841,9 @@ def read_org_gbff(
             )
 
             gene.add_sequence(get_dna_sequence(sequence, gene))
+            # Sort genes by start position
+            sorted_genes = sorted(contig.genes, key=lambda x: x.start)
+            process_intergenic_regions(contig, sorted_genes, sequence, organism)
 
             if feature["feature_type"] == "CDS":
                 gene_counter += 1
@@ -1245,6 +1249,10 @@ def read_org_gff(
 
             for gene in contig.genes:
                 gene.add_sequence(get_dna_sequence(contig_sequences[contig.name], gene))
+                # sort the genes by start position
+                sorted_genes = sorted(contig.genes, key=lambda x: x.start)
+                process_intergenic_regions(contig, sorted_genes, contig_sequences[contig_name], org)
+
             for rna in contig.RNAs:
                 rna.add_sequence(get_dna_sequence(contig_sequences[contig.name], rna))
 
@@ -1690,6 +1698,9 @@ def get_gene_sequences_from_fastas(
                         gene.add_sequence(
                             get_dna_sequence(fasta_dict[org][contig.name], gene)
                         )
+                        # sort genes by start position
+                        sorted_genes = sorted(contig.genes, key=lambda x: x.start)
+                        process_intergenic_regions(contig, sorted_genes, fasta_dict[org][contig.name], org)
                         bar.update()
                     # for rna in contig.RNAs:
                     #     rna.add_sequence(get_dna_sequence(fasta_dict[org][contig.name], rna))
