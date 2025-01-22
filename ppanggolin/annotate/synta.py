@@ -18,7 +18,6 @@ from pyrodigal import GeneFinder, Sequence
 # local libraries
 from ppanggolin.genome import Organism, Gene, RNA, Contig, Intergenic
 from ppanggolin.utils import is_compressed, read_compressed_or_not
-from ppanggolin.annotate.annotate import create_intergenic
 
 contig_counter: Value = Value("i", 0)
 
@@ -646,6 +645,40 @@ def process_intergenic_regions(contig, gene_list, contig_seq, org):
                 target=first_gene.ID,
                 offset=0
             )
+def create_intergenic(org, contig, start, end, contig_seq, intergenic_id, is_border, source, target, offset):
+    """
+    Create and add an intergenic region to the contig.
+
+    :param org: Organism object.
+    :param contig: Contig object.
+    :param start: Start position of the intergenic region.
+    :param end: End position of the intergenic region.
+    :param contig_seq: Sequence of the contig.
+    :param intergenic_id: Unique ID for the intergenic region.
+    :param is_border: Boolean indicating if this is a border intergenic region.
+    :param source: Source gene for the intergenic region.
+    :param target: Target gene for the intergenic region.
+    :param offset: Length of the overlap if applicable.
+    """
+    if start > end and not contig.is_circular:
+        raise ValueError(f"Invalid intergenic region: start={start}, end={end} on a non-circular contig.")
+
+    intergenic_seq = contig_seq[start - 1:end] if start <= end else contig_seq[start - 1:] + contig_seq[:end]
+
+    intergenic = Intergenic(intergenic_id)
+    intergenic.fill_annotations(
+        start=start,
+        stop=end,
+        coordinates=[(start, end)],
+        strand="+",  # Default strand
+    )
+    intergenic.dna = intergenic_seq
+    intergenic.is_border = is_border
+    intergenic.source = source
+    intergenic.target = target
+    intergenic.offset = offset
+    intergenic.fill_parents(org, contig)
+    contig.add_intergenic(intergenic)
 
 
 def annotate_organism(
