@@ -9,7 +9,7 @@ from pathlib import Path
 import tables
 
 # local libraries
-from ppanggolin.genome import Organism, Contig, Gene
+from ppanggolin.genome import Organism, Contig, Gene, Intergenic
 from ppanggolin.region import Region, Spot, Module
 from ppanggolin.geneFamily import GeneFamily
 from ppanggolin.edge import Edge
@@ -193,6 +193,24 @@ class Pangenome:
         :return: The number of genes
         """
         return sum(ctg.number_of_rnas for ctg in self.contigs)
+
+    """Intergenic regions methods"""
+
+    @property
+    def intergenics(self) -> Generator[Intergenic, None, None]:
+        """Generator of genes in the pangenome.
+
+        :return: gene generator
+        """
+        yield from (intergenic for org in self.organisms for contig in org.contigs for intergenic in contig.intergenics)
+
+    @property
+    def number_of_intergenics(self) -> int:
+        """Returns the number of gene present in the pangenome
+
+        :return: The number of genes
+        """
+        return sum(ctg.number_of_intergenics for ctg in self.contigs)
 
     """Gene families methods"""
 
