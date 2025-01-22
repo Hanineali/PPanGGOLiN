@@ -500,6 +500,8 @@ class Contig(MetaFeatures):
         self._genes_position = []
         self._organism = None
         self._length = None
+        self._intergenic_getter = {}
+        self._intergenic_by_neighbors = {}
 
     def __str__(self) -> str:
         """Returns a string representation of the contig
@@ -883,6 +885,107 @@ class Contig(MetaFeatures):
 
         return consecutive_genes_lists
 
+    def add_intergenic(self, intergenic: Intergenic):
+        """
+        Add an intergenic region to the contig.
+
+        :param intergenic: Intergenic object to add.
+
+        :raises TypeError: If the object is not an instance of Intergenic.
+        :raises ValueError: If an intergenic region with the same source and target already exists.
+        """
+        if not isinstance(intergenic, Intergenic):
+            raise TypeError(f"Expected 'Intergenic', but got {type(intergenic).__name__}.")
+
+        # Use source and target as unique identifiers
+        key = (intergenic.source, intergenic.target)
+        if key in self._intergenic_by_neighbors:
+            raise ValueError(
+                f"Intergenic region between {intergenic.source} and {intergenic.target} "
+                f"already exists in contig '{self.name}'."
+            )
+
+        # Add to both neighbor and coordinate-based getters
+        self._intergenic_by_neighbors[key] = intergenic
+        coordinate = intergenic.coordinates
+        self._intergenic_getter[coordinate] = intergenic
+
+    def get_intergenic(self, source: str, target: str) -> Intergenic:
+        """
+        Retrieve an intergenic region by its source and target genes.
+
+        :param source: ID of the source gene.
+        :param target: ID of the target gene.
+        :return: Intergenic region object.
+        """
+        return self._intergenic_by_neighbors.get((source, target))
+
+    def remove_intergenic(self, source: str, target: str):
+        """
+        Remove an intergenic region by its source and target genes.
+
+        :param source: ID of the source gene.
+        :param target: ID of the target gene.
+
+        :raises KeyError: If no intergenic region is found with the given source and target.
+        """
+        key = (source, target)
+        intergenic = self._intergenic_by_neighbors.pop(key, None)
+        if not intergenic:
+            raise KeyError(
+                f"No intergenic region found between {source} and {target} in contig '{self.name}'."
+            )
+
+        # Remove from coordinate-based getter as well
+        coordinate = intergenic.coordinates
+        self._intergenic_getter.pop(coordinate, None)
+
+    @property
+    def intergenics(self) -> Generator[Intergenic, None, None]:
+        """
+        Retrieve all intergenic regions in the contig.
+
+        :return: Generator of intergenic regions.
+        """
+        for intergenic in self._intergenic_by_neighbors.values():
+            if intergenic is not None:
+                yield intergenic
+
+    @property
+    def number_of_intergenics(self) -> int:
+        """Get the number of intergenic regions in the contig."""
+        return len(self._intergenic_by_neighbors)
+
+    def get_intergenic_by_coordinates(self, start: int, stop: int) -> Intergenic:
+        """
+        Retrieve an intergenic region by its coordinates.
+
+        :param start: Start position of the intergenic region.
+        :param stop: Stop position of the intergenic region.
+        :return: Intergenic region object.
+        """
+        return self._intergenic_getter.get((start, stop))
+
+    def remove_intergenic_by_coordinates(self, start: int, stop: int):
+        """
+        Remove an intergenic region by its coordinates.
+
+        :param start: Start position of the intergenic region.
+        :param stop: Stop position of the intergenic region.
+
+        :raises KeyError: If no intergenic region is found with the given coordinates.
+        """
+        coordinate = (start, stop)
+        intergenic = self._intergenic_getter.pop(coordinate, None)
+        if not intergenic:
+            raise KeyError(
+                f"No intergenic region found with coordinates {coordinate} in contig '{self.name}'."
+            )
+
+        # Remove from neighbor-based getter as well
+        key = (intergenic.source, intergenic.target)
+        self._intergenic_by_neighbors.pop(key, None)
+
 
 class Organism(MetaFeatures):
     """
@@ -916,6 +1019,9 @@ class Organism(MetaFeatures):
         self._contigs_getter = {}
         self._families = None
         self.bitarray = None
+        self._intergenic_getter = {}
+        self._intergenic_by_neighbors = {}
+
 
     def __str__(self) -> str:
         """String representation of the genome
@@ -1207,17 +1313,79 @@ class Organism(MetaFeatures):
 
         return partition_to_gene
 
-class Intergenic(Feature):
-    def __init__(self, intergenic_id: str):
-        """Constructor method
+    @property
+    def intergenics(self) -> Generator[Intergenic, None, None]:
+        """
+        Retrieve all intergenic regions in the contig.
 
-        :param intergenic_id: Identifier of the gene
+        :return: Generator of intergenic regions.
+        """
+        for contig in self.contigs:
+            yield from contig.intergenics
+
+    @property
+    def number_of_intergenics(self) -> int:
+        """Get the number of intergenic regions in the organism
+        :return: Number of intergenic regions in the organism
+        """
+        return sum(contig.number_of_intergenics for contig in self.contigs)
+
+class Intergenic(Feature):
+    def __init__(self, intergenic_id: str, is_border: bool = False):
+        """
+        Constructor method for the Intergenic class.
+
+        :param intergenic_id: Unique identifier for the intergenic region.
+        :param is_border: Boolean indicating if the intergenic region is at a border.
         """
         super().__init__(intergenic_id)
-        self.neighbors = None
+        self._neighbors = set()  # (source, target)
         self.source = None
         self.target = None
         self.offset = None
+        self.edge = None  # Associated edge information not retrieved yet
+        self.is_border = is_border
+
+    @property
+    def neighbors(self) -> set:
+        """
+        Get the neighboring genes (source and target) for the intergenic region.
+
+        :return: A set of neighboring gene IDs (source, target).
+        """
+        return self._neighbors
+
+    @neighbors.setter
+    def neighbors(self, neighbor_pair: tuple):
+        """
+        Set the neighboring genes for the intergenic region.
+
+        :param neighbor_pair: A tuple containing the IDs of the source and target genes.
+        :raises TypeError: If the input is not a tuple or if elements are not strings.
+        """
+        if not isinstance(neighbor_pair, tuple) or len(neighbor_pair) != 2:
+            raise TypeError("Expected a tuple with two elements (source, target).")
+        if not all(isinstance(gene_id, str) for gene_id in neighbor_pair):
+            raise TypeError("Both source and target in the neighbor tuple must be strings.")
+        self._neighbors.add(neighbor_pair)
+
+    def add_neighbors(self, source: str, target: str):
+        """
+        Add a pair of neighboring genes.
+
+        :param source: ID of the upstream gene.
+        :param target: ID of the downstream gene.
+        :raises TypeError: If source or target are not strings.
+        """
+        if not isinstance(source, str) or not isinstance(target, str):
+            raise TypeError("Source and target must be strings.")
+        self._neighbors.add((source, target))
+
+    def clear_neighbors(self):
+        """
+        Clear all neighboring gene information.
+        """
+        self._neighbors.clear()
 
 
 
