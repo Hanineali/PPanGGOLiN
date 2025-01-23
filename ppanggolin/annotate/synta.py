@@ -562,7 +562,7 @@ def process_intergenic_regions(contig, gene_list, contig_seq, org):
             intergenic_id=intergenic_id,
             is_border=is_border,
             source=None,
-            target=gene_list[0].ID,
+            target=gene_list[0],
             offset=0
         )
 
@@ -584,8 +584,8 @@ def process_intergenic_regions(contig, gene_list, contig_seq, org):
                 contig_seq=contig_seq,
                 intergenic_id=intergenic_id,
                 is_border=is_border,
-                source=prev_gene.ID,
-                target=next_gene.ID,
+                source=prev_gene,
+                target=next_gene,
                 offset=0
             )
         elif prev_gene.stop >= next_gene.start - 1:  # Overlapping region
@@ -600,8 +600,8 @@ def process_intergenic_regions(contig, gene_list, contig_seq, org):
                 contig_seq=contig_seq,
                 intergenic_id=intergenic_id,
                 is_border=is_border,
-                source=prev_gene.ID,
-                target=next_gene.ID,
+                source=prev_gene,
+                target=next_gene,
                 offset=overlap_length
                 )
 
@@ -619,7 +619,7 @@ def process_intergenic_regions(contig, gene_list, contig_seq, org):
             contig_seq=contig_seq,
             intergenic_id=intergenic_id,
             is_border=is_border,
-            source=gene_list[-1].ID,
+            source=gene_list[-1],
             target=None,
             offset=0
         )
@@ -641,8 +641,8 @@ def process_intergenic_regions(contig, gene_list, contig_seq, org):
                 contig_seq=contig_seq,
                 intergenic_id=intergenic_id,
                 is_border=is_border,
-                source=last_gene.ID,
-                target=first_gene.ID,
+                source=last_gene,
+                target=first_gene,
                 offset=0
             )
 def create_intergenic(org, contig, start, end, contig_seq, intergenic_id, is_border, source, target, offset):
