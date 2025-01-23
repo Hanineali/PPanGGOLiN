@@ -552,7 +552,7 @@ def process_intergenic_regions(contig, gene_list, contig_seq, org):
         is_border = True
         start = 1
         end = gene_list[0].start - 1
-        intergenic_id = f"border_start_{gene_list[0].ID}"
+        intergenic_id = None
         create_intergenic(
             org=org,
             contig=contig,
@@ -610,7 +610,7 @@ def process_intergenic_regions(contig, gene_list, contig_seq, org):
         is_border = True
         start = gene_list[-1].stop + 1
         end = contig_length
-        intergenic_id = f"border_end_{gene_list[-1].ID}"
+        intergenic_id = None
         create_intergenic(
             org=org,
             contig=contig,

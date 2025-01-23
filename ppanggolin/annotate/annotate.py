@@ -29,7 +29,7 @@ from ppanggolin.annotate.synta import (
     process_intergenic_regions
 )
 from ppanggolin.pangenome import Pangenome
-from ppanggolin.genome import Organism, Gene, RNA, Contig, Intergenic
+from ppanggolin.genome import Organism, Gene, RNA, Contig, Intergenic, Feature
 from ppanggolin.utils import (
     read_compressed_or_not,
     mk_file_name,
@@ -83,12 +83,12 @@ def create_gene(
     product: str = "",
     genetic_code: int = 11,
     protein_id: str = "",
-) -> Gene:
+) -> Union[Gene, RNA]:
     """
-    Create a Gene object and associate to contig and Organism
+    Create an Gene or RNA object and associate to contig and Organism
 
-    :param org: Organism to add gene
-    :param contig: Contig to add gene
+    :param org: Organism to add gene/rna
+    :param contig: Contig to add gene/rna
     :param gene_counter: Gene counter to name gene
     :param rna_counter: RNA counter to name RNA
     :param gene_id: local identifier
@@ -806,9 +806,13 @@ def read_org_gbff(
             )
 
             gene.add_sequence(get_dna_sequence(sequence, gene))
+
             # Sort genes by start position
-            sorted_genes = sorted(contig.genes, key=lambda x: x.start)
-            process_intergenic_regions(contig, sorted_genes, sequence, organism)
+            # Combine genes and RNAs for intergenic region processing
+            all_features = sorted(
+                list(contig.genes) + list(contig.RNAs), key=lambda x: x.start
+            )
+            process_intergenic_regions(contig, all_features, sequence, organism)
 
             if feature["feature_type"] == "CDS":
                 gene_counter += 1
@@ -1220,6 +1224,8 @@ def read_org_gff(
 
             for rna in contig.RNAs:
                 rna.add_sequence(get_dna_sequence(contig_sequences[contig.name], rna))
+                sorted_rnas = sorted(contig.RNAs, key=lambda x: x.start)
+                process_intergenic_regions(contig, sorted_rnas, contig_sequences[contig_name], org)
 
     # add metadata to genome and contigs
     if contig_name_to_region_info:
