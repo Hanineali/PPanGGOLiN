@@ -198,9 +198,9 @@ class Pangenome:
 
     @property
     def intergenics(self) -> Generator[Intergenic, None, None]:
-        """Generator of genes in the pangenome.
+        """Generator of intergenics in the pangenome.
 
-        :return: gene generator
+        :return: intergenic generator
         """
         yield from (intergenic for org in self.organisms for contig in org.contigs for intergenic in contig.intergenics)
 
@@ -210,7 +210,10 @@ class Pangenome:
 
         :return: The number of genes
         """
-        return sum(ctg.number_of_intergenics for ctg in self.contigs)
+        total = sum(contig.number_of_intergenics for contig in self.contigs)
+        print(f"Total intergenics in pangenome: {total}")  # Debug statement
+        return total
+
 
     """Gene families methods"""
 
