@@ -1341,7 +1341,6 @@ class Intergenic(Feature):
         :param is_border: Boolean indicating if the intergenic region is at a border.
         """
         super().__init__(intergenic_id)
-        self._neighbors = set()  # (source, target)
         self.source = None
         self.target = None
         self.offset = None
@@ -1349,45 +1348,18 @@ class Intergenic(Feature):
         self.is_border = is_border
 
     @property
-    def neighbors(self) -> set:
+    def neighbors(self) -> Tuple[Gene, Gene]:
         """
         Get the neighboring genes (source and target) for the intergenic region.
 
         :return: A set of neighboring gene IDs (source, target).
         """
-        return self._neighbors
+        return (self.source, self.target)
 
-    @neighbors.setter
-    def neighbors(self, neighbor_pair: tuple):
-        """
-        Set the neighboring genes for the intergenic region.
 
-        :param neighbor_pair: A tuple containing the IDs of the source and target genes.
-        :raises TypeError: If the input is not a tuple or if elements are not strings.
-        """
-        if not isinstance(neighbor_pair, tuple) or len(neighbor_pair) != 2:
-            raise TypeError("Expected a tuple with two elements (source, target).")
-        if not all(isinstance(gene_id, str) for gene_id in neighbor_pair):
-            raise TypeError("Both source and target in the neighbor tuple must be strings.")
-        self._neighbors.add(neighbor_pair)
 
-    def add_neighbors(self, source: str, target: str):
-        """
-        Add a pair of neighboring genes.
 
-        :param source: ID of the upstream gene.
-        :param target: ID of the downstream gene.
-        :raises TypeError: If source or target are not strings.
-        """
-        if not isinstance(source, str) or not isinstance(target, str):
-            raise TypeError("Source and target must be strings.")
-        self._neighbors.add((source, target))
 
-    def clear_neighbors(self):
-        """
-        Clear all neighboring gene information.
-        """
-        self._neighbors.clear()
 
 
 
