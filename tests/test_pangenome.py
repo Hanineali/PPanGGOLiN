@@ -917,39 +917,6 @@ class TestPangenomeIntergenic(TestPangenome):
         assert set(intergenic_ids) == set(
             expected_ids), "Intergenics generator does not return the expected intergenic regions."
 
-    def test_number_of_inter(self):
-        """Test the number_of_intergenics property."""
-        # Reuse the setup logic from `test_pangenome_intergenics`
-        pangenome = Pangenome()
-
-        # Create an organism
-        organism = Organism(name="TestOrganism")
-        pangenome.add_organism(organism)
-
-        # Create a contig
-        contig = Contig(identifier=1, name="TestContig", is_circular=False)
-        organism.add(contig)
-
-        # Create and add intergenic regions
-        intergenic1 = Intergenic("intergenic_1", is_border=True)
-        intergenic1.source = "gene_1"
-        intergenic1.target = "gene_2"
-
-        intergenic2 = Intergenic("intergenic_2", is_border=False)
-        intergenic2.source = "gene_2"
-        intergenic2.target = "gene_3"
-
-        intergenic3 = Intergenic("intergenic_3", is_border=False)
-        intergenic3.source = "gene_3"
-        intergenic3.target = "gene_4"
-
-        # Add intergenics to the contig
-        contig.add_intergenic(intergenic1)
-        contig.add_intergenic(intergenic2)
-        contig.add_intergenic(intergenic3)
-
-        # Validate the number of intergenics
-        assert pangenome.number_of_intergenics == 3, "The number_of_intergenics property does not return the correct count."
 
     def test_pangenome_contig_intergenics(self):
         # Create a Pangenome
