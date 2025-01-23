@@ -954,7 +954,9 @@ class Contig(MetaFeatures):
     @property
     def number_of_intergenics(self) -> int:
         """Get the number of intergenic regions in the contig."""
-        return len(self._intergenic_by_neighbors)
+        total = len(self._intergenic_by_neighbors)
+        print(f"Total intergenics in contig {self.name}: {total}")  # Debug statement
+        return total
 
     def get_intergenic_by_coordinates(self, start: int, stop: int) -> Intergenic:
         """
