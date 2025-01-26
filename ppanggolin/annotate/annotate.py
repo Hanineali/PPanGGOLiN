@@ -26,10 +26,10 @@ from ppanggolin.annotate.synta import (
     get_dna_sequence,
     init_contig_counter,
     contig_counter,
-    process_intergenic_regions
+    process_genes_and_intergenics_gff_gbff
 )
 from ppanggolin.pangenome import Pangenome
-from ppanggolin.genome import Organism, Gene, RNA, Contig, Intergenic, Feature
+from ppanggolin.genome import Organism, Gene, RNA, Contig
 from ppanggolin.utils import (
     read_compressed_or_not,
     mk_file_name,
@@ -676,6 +676,8 @@ def read_org_gbff(
     gene_counter = 0
     rna_counter = 0
     contig_to_metadata = {}
+    contig_sequences = {}  # Dictionary to map contig names to their sequences
+
 
     for header, features, sequence in parse_gbff_by_contig(gbff_file_path):
         if "LOCUS" not in header:
@@ -722,6 +724,10 @@ def read_org_gbff(
                 contig_counter.value += 1
             organism.add(contig)
             contig.length = contig_len
+
+        # Map contig name to its sequence
+        contig_sequences[contig.name] = sequence
+
 
         for feature in features:
             if feature["feature_type"] == "source":
@@ -788,7 +794,7 @@ def read_org_gbff(
 
             strand = "-" if is_complement else "+"
 
-            gene = create_gene(
+            create_gene(
                 org=organism,
                 contig=contig,
                 gene_counter=gene_counter,
@@ -805,19 +811,17 @@ def read_org_gbff(
                 protein_id=feature["protein_id"],
             )
 
-            gene.add_sequence(get_dna_sequence(sequence, gene))
-
-            # Sort genes by start position
-            # Combine genes and RNAs for intergenic region processing
-            all_features = sorted(
-                list(contig.genes) + list(contig.RNAs), key=lambda x: x.start
-            )
-            process_intergenic_regions(contig, all_features, sequence, organism)
-
             if feature["feature_type"] == "CDS":
                 gene_counter += 1
             else:
                 rna_counter += 1
+
+    # Process contigs to extract genes and intergenic regions
+    for contig in organism.contigs:
+        all_features = sorted(
+            list(contig.genes) + list(contig.RNAs), key=lambda x: x.start
+        )
+        process_genes_and_intergenics_gff_gbff(contig, all_features, contig_sequences[contig.name], organism)
 
     genome_metadata, contig_to_uniq_metadata = combine_contigs_metadata(
         contig_to_metadata
@@ -825,7 +829,6 @@ def read_org_gbff(
     organism.add_metadata(
         metadata=Metadata(source="annotation_file", **genome_metadata)
     )
-
     for contig, metadata_dict in contig_to_uniq_metadata.items():
         contig.add_metadata(Metadata(source="annotation_file", **metadata_dict))
 
@@ -1215,17 +1218,11 @@ def read_org_gff(
         correct_putative_overlaps(org.contigs)
 
         for contig in org.contigs:
+            all_features = sorted(
+                list(contig.genes) + list(contig.RNAs), key=lambda x: x.start
+            )
+            process_genes_and_intergenics_gff_gbff(contig, all_features, contig_sequences[contig.name], org)
 
-            for gene in contig.genes:
-                gene.add_sequence(get_dna_sequence(contig_sequences[contig.name], gene))
-                # sort the genes by start position
-                sorted_genes = sorted(contig.genes, key=lambda x: x.start)
-                process_intergenic_regions(contig, sorted_genes, contig_sequences[contig_name], org)
-
-            for rna in contig.RNAs:
-                rna.add_sequence(get_dna_sequence(contig_sequences[contig.name], rna))
-                sorted_rnas = sorted(contig.RNAs, key=lambda x: x.start)
-                process_intergenic_regions(contig, sorted_rnas, contig_sequences[contig_name], org)
 
     # add metadata to genome and contigs
     if contig_name_to_region_info:
@@ -1665,14 +1662,10 @@ def get_gene_sequences_from_fastas(
         for org in pangenome.organisms:
             for contig in org.contigs:
                 try:
-                    for gene in contig.genes:
-                        gene.add_sequence(
-                            get_dna_sequence(fasta_dict[org][contig.name], gene)
-                        )
-                        # sort genes by start position
-                        sorted_genes = sorted(contig.genes, key=lambda x: x.start)
-                        process_intergenic_regions(contig, sorted_genes, fasta_dict[org][contig.name], org)
-                        bar.update()
+                    # sort genes by start position
+                    sorted_genes = sorted(contig.genes, key=lambda x: x.start)
+                    process_genes_and_intergenics_gff_gbff(contig,sorted_genes,fasta_dict[org][contig.name], org)
+                    bar.update()
                     # for rna in contig.RNAs:
                     #     rna.add_sequence(get_dna_sequence(fasta_dict[org][contig.name], rna))
                 except KeyError:

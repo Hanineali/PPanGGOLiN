@@ -501,57 +501,27 @@ def process_contigs(org, genes, contig_sequences, circular_contigs, offset=0):
         contig = org.get(contig_name)
         contig.is_circular = contig.name in circular_contigs
 
-        # Step 1: Extract genes sequence
-        process_genes(contig, genes, contig_sequences[contig.name], org)
-
-        # Step 2: Extract intergenic regions
-        process_intergenic_regions(contig, genes, contig_sequences[contig_name], org)
+        # Extract genes and intergenic sequences simultaneously
+        process_genes_and_intergenics(contig, genes, contig_sequences[contig.name], org)
 
     return org
 
-def process_genes(contig, gene_list, contig_seq, org):
+def process_genes_and_intergenics(contig, features_list, contig_seq, org):
     """
-    Process and store gene sequences.
-
+    Process and store gene sequences and intergenic sequences simultaneously.
     :param contig: Contig object.
-    :param gene_list: List of genes for this contig.
+    :param features_list: List of genes for this contig.
     :param contig_seq: Sequence of the contig.
     :param org: Organism object.
-    """
-    for gene in gene_list:
-        # Assign the DNA sequence for the gene
-        gene.add_sequence(get_dna_sequence(contig_seq, gene))
-
-        # Fill parent references
-        gene.fill_parents(org, contig)
-
-        # Add to the contig
-        if isinstance(gene, Gene):
-            contig.add(gene)
-        elif isinstance(gene, RNA):
-            contig.add_rna(gene)
-
-
-
-
-def process_intergenic_regions(contig, gene_list, contig_seq, org):
-    """
-    Process and store intergenic regions, including borders, overlaps, and circular contigs.
-
-    :param contig: Contig object.
-    :param gene_list: List of genes for this contig.
-    :param contig_seq: Sequence of the contig.
-    :param org: Organism object.
-    :param offset: Offset to adjust overlapping intergenic boundaries.
     """
     contig_length = len(contig_seq)
-    is_circular = contig.is_circular  # Check once if the contig is circular
+    is_circular = contig.is_circular
 
-    # Handle start of contig
-    if gene_list and gene_list[0].start > 1:
-        is_border = True
+    # Handle start of the contig
+    if features_list and features_list[0].start > 1:
+        # Extract intergenic region at the start of the contig
         start = 1
-        end = gene_list[0].start - 1
+        end = features_list[0].start - 1
         intergenic_id = None
         create_intergenic(
             org=org,
@@ -560,55 +530,60 @@ def process_intergenic_regions(contig, gene_list, contig_seq, org):
             end=end,
             contig_seq=contig_seq,
             intergenic_id=intergenic_id,
-            is_border=is_border,
+            is_border=True,
             source=None,
-            target=gene_list[0],
+            target=features_list[0],
             offset=0
         )
 
-    # Handle intergenic regions between genes
-    for i in range(len(gene_list) - 1):
-        prev_gene = gene_list[i]
-        next_gene = gene_list[i + 1]
+    # Process each gene and its intergenic region
+    for i, feature in enumerate(features_list):
+        # Extract gene sequence
+        feature.add_sequence(get_dna_sequence(contig_seq, feature))
+        feature.fill_parents(org, contig)
+        if isinstance(feature, Gene):
+            contig.add(feature)
+        elif isinstance(feature, RNA):
+            contig.add_rna(feature)
 
-        if prev_gene.stop < next_gene.start - 1:  # Non-overlapping region
-            is_border = False
-            start = prev_gene.stop + 1
-            end = next_gene.start - 1
-            intergenic_id = f"{prev_gene.ID} | {next_gene.ID}"
-            create_intergenic(
-                org=org,
-                contig=contig,
-                start=start,
-                end=end,
-                contig_seq=contig_seq,
-                intergenic_id=intergenic_id,
-                is_border=is_border,
-                source=prev_gene,
-                target=next_gene,
-                offset=0
-            )
-        elif prev_gene.stop >= next_gene.start - 1:  # Overlapping region
-            overlap_length = prev_gene.stop - next_gene.start + 1
-            is_border = False
-            intergenic_id = f"{prev_gene.ID} | {next_gene.ID}"
-            create_intergenic(
-                org=org,
-                contig=contig,
-                start=prev_gene.start,
-                end=next_gene.stop,
-                contig_seq=contig_seq,
-                intergenic_id=intergenic_id,
-                is_border=is_border,
-                source=prev_gene,
-                target=next_gene,
-                offset=overlap_length
+        # Process intergenic region if not the last gene
+        if i < len(features_list) - 1:
+            next_feature = features_list[i + 1]
+            if feature.stop < next_feature.start - 1:  # Non-overlapping region
+                start = feature.stop + 1
+                end = next_feature.start - 1
+                intergenic_id = f"{feature.ID} | {next_feature.ID}"
+                create_intergenic(
+                    org=org,
+                    contig=contig,
+                    start=start,
+                    end=end,
+                    contig_seq=contig_seq,
+                    intergenic_id=intergenic_id,
+                    is_border=False,
+                    source=feature,
+                    target=next_feature,
+                    offset=0
+                )
+            elif feature.stop >= next_feature.start - 1:  # Overlapping region
+                overlap_length = feature.stop - next_feature.start + 1
+                intergenic_id = f"{feature.ID} | {next_feature.ID}"
+                create_intergenic(
+                    org=org,
+                    contig=contig,
+                    start=feature.start,
+                    end=next_feature.stop,
+                    contig_seq=contig_seq,
+                    intergenic_id=intergenic_id,
+                    is_border=False,
+                    source=feature,
+                    target=next_feature,
+                    offset=overlap_length
                 )
 
-    # Handle end of contig
-    if gene_list and gene_list[-1].stop < contig_length:
-        is_border = True
-        start = gene_list[-1].stop + 1
+    # Handle end of the contig
+    if features_list and features_list[-1].stop < contig_length:
+        start = features_list[-1].stop + 1
         end = contig_length
         intergenic_id = None
         create_intergenic(
@@ -618,21 +593,20 @@ def process_intergenic_regions(contig, gene_list, contig_seq, org):
             end=end,
             contig_seq=contig_seq,
             intergenic_id=intergenic_id,
-            is_border=is_border,
-            source=gene_list[-1],
+            is_border=True,
+            source=features_list[-1],
             target=None,
             offset=0
         )
 
     # Handle circular contigs
-    if is_circular and gene_list:
-        first_gene = gene_list[0]
-        last_gene = gene_list[-1]
-        if last_gene.stop < contig_length and first_gene.start > 1:
-            is_border = False
-            start = last_gene.stop + 1
-            end = first_gene.start - 1
-            intergenic_id = f"{last_gene.ID} | {first_gene.ID}"
+    if is_circular and features_list:
+        first_feature = features_list[0]
+        last_feature = features_list[-1]
+        if last_feature.stop < contig_length and first_feature.start > 1:
+            start = last_feature.stop + 1
+            end = first_feature.start - 1
+            intergenic_id = f"{last_feature.ID} | {first_feature.ID}"
             create_intergenic(
                 org=org,
                 contig=contig,
@@ -640,11 +614,124 @@ def process_intergenic_regions(contig, gene_list, contig_seq, org):
                 end=end,
                 contig_seq=contig_seq,
                 intergenic_id=intergenic_id,
-                is_border=is_border,
-                source=last_gene,
-                target=first_gene,
+                is_border=False,
+                source=last_feature,
+                target=first_feature,
                 offset=0
             )
+
+def process_genes_and_intergenics_gff_gbff(contig, features_list, contig_seq, org):
+    """
+    Process and store gene sequences and intergenic sequences simultaneously.
+
+    :param contig: Contig object.
+    :param features_list: List of genes for this contig.
+    :param contig_seq: Sequence of the contig.
+    :param org: Organism object.
+    """
+    contig_length = len(contig_seq)
+    is_circular = contig.is_circular
+
+    # Handle start of the contig
+    if features_list and features_list[0].start > 1:
+        # Extract intergenic region at the start of the contig
+        start = 1
+        end = features_list[0].start - 1
+        intergenic_id = None
+        create_intergenic(
+            org=org,
+            contig=contig,
+            start=start,
+            end=end,
+            contig_seq=contig_seq,
+            intergenic_id=intergenic_id,
+            is_border=True,
+            source=None,
+            target=features_list[0],
+            offset=0
+        )
+
+    # Process each gene and its intergenic region
+    for i, feature in enumerate(features_list):
+        # Extract gene sequence
+        feature.add_sequence(get_dna_sequence(contig_seq, feature))
+
+        # Process intergenic region if not the last gene
+        if i < len(features_list) - 1:
+            next_feature = features_list[i + 1]
+            if feature.stop < next_feature.start - 1:  # Non-overlapping region
+                start = feature.stop + 1
+                end = next_feature.start - 1
+                intergenic_id = f"{feature.ID} | {next_feature.ID}"
+                create_intergenic(
+                    org=org,
+                    contig=contig,
+                    start=start,
+                    end=end,
+                    contig_seq=contig_seq,
+                    intergenic_id=intergenic_id,
+                    is_border=False,
+                    source=feature,
+                    target=next_feature,
+                    offset=0
+                )
+
+            elif feature.stop >= next_feature.start - 1:  # Overlapping region
+                overlap_length = feature.stop - next_feature.start + 1
+                intergenic_id = f"{feature.ID} | {next_feature.ID}"
+                create_intergenic(
+                    org=org,
+                    contig=contig,
+                    start=feature.start,
+                    end=next_feature.stop,
+                    contig_seq=contig_seq,
+                    intergenic_id=intergenic_id,
+                    is_border=False,
+                    source=feature,
+                    target=next_feature,
+                    offset=overlap_length
+                )
+
+    # Handle end of the contig
+    if features_list and features_list[-1].stop < contig_length:
+        start = features_list[-1].stop + 1
+        end = contig_length
+        intergenic_id = None
+        create_intergenic(
+            org=org,
+            contig=contig,
+            start=start,
+            end=end,
+            contig_seq=contig_seq,
+            intergenic_id=intergenic_id,
+            is_border=True,
+            source=features_list[-1],
+            target=None,
+            offset=0
+        )
+
+    # Handle circular contigs
+    if is_circular and features_list:
+        first_feature = features_list[0]
+        last_feature = features_list[-1]
+        if last_feature.stop < contig_length and first_feature.start > 1:
+            start = last_feature.stop + 1
+            end = first_feature.start - 1
+            intergenic_id = f"{last_feature.ID} | {first_feature.ID}"
+            create_intergenic(
+                org=org,
+                contig=contig,
+                start=start,
+                end=end,
+                contig_seq=contig_seq,
+                intergenic_id=intergenic_id,
+                is_border=False,
+                source=last_feature,
+                target=first_feature,
+                offset=0
+            )
+
+
 def create_intergenic(org, contig, start, end, contig_seq, intergenic_id, is_border, source, target, offset):
     """
     Create and add an intergenic region to the contig.
