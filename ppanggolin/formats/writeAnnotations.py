@@ -547,7 +547,7 @@ def write_intergenicdata(
     intergenic_data_map: Dict[Intergenicdata, int],
     disable_bar=False,
 ):
-    """Writing genedata information in pangenome file
+    """Writing intergenicdata information in pangenome file
 
     :param pangenome: Pangenome object filled with annotation.
     :param h5f: Pangenome file
@@ -571,7 +571,9 @@ def write_intergenicdata(
     )
     intergenicdata_row = intergenicdata_table.row
     for intergenicdata, intergenicdata_id in tqdm(
-        intergenic_data_map.items(), unit="intergenicdata", disable=disable_bar
+        intergenic_data_map.items(),
+        unit="intergenicdata",
+        disable=disable_bar
     ):
         intergenicdata_row["intergenicdata_id"] = intergenicdata_id
         intergenicdata_row["source_id"] = intergenicdata.source_id
@@ -653,6 +655,7 @@ def write_annotations(
     :param rec_contigs: Allow writing contigs in pangenomes
     :param rec_genes: Allow writing genes in pangenomes
     :param rec_rnas: Allow writing RNAs in pangenomes
+    :param rec_intergenics: Allow writing intergenics in pangenomes
     :param disable_bar: Allow to disable progress bar
     """
     annotation = h5f.create_group(
@@ -683,7 +686,8 @@ def write_annotations(
 
     if rec_intergenics:
         desc = intergenic_desc(intergenic_id_len)
-        write_intergenics(pangenome, h5f, annotation, desc, disable_bar)
+        intergenic_data_map = write_intergenics(pangenome, h5f, annotation, desc, disable_bar)
+        write_intergenicdata(pangenome, h5f, annotation, intergenic_data_map, disable_bar)
 
     genes_with_joined_coordinates_2_id = {
         gene: gene_id

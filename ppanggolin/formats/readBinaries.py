@@ -93,8 +93,8 @@ class Intergenicdata:
         source_id: str,
         target_id: str,
         edge: str,
+        offset: int,
         neighbors: tuple,
-        offset: int
     ):
         """Constructor method
 
@@ -105,16 +105,16 @@ class Intergenicdata:
         self.source_id = source_id
         self.target_id = target_id
         self.edge = edge
-        self.neighbors = tuple(neighbors)
         self.offset = offset
+        self.neighbors = tuple(neighbors)
 
     def __eq__(self, other):
         return (
             self.source_id == other.source_id
             and self.target_id == other.target_id
             and self.edge == other.edge
-            and self.neighbors == other.neighbors
             and self.offset == other.offset
+            and self.neighbors == other.neighbors
         )
 
     def __hash__(self):
