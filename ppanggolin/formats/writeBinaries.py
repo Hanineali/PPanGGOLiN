@@ -14,7 +14,7 @@ from gmpy2 import popcount
 
 # local libraries
 from ppanggolin.pangenome import Pangenome
-from ppanggolin.formats.writeAnnotations import write_annotations, write_gene_sequences
+from ppanggolin.formats.writeAnnotations import write_annotations, write_gene_intergenic_sequences
 from ppanggolin.formats.writeMetadata import (
     write_metadata,
     erase_metadata,
@@ -913,7 +913,7 @@ def write_pangenome(
         logging.getLogger("PPanGGOLiN").info(
             "writing the protein coding gene dna sequences in pangenome..."
         )
-        write_gene_sequences(pangenome, h5f, disable_bar=disable_bar)
+        write_gene_intergenic_sequences(pangenome, h5f, disable_bar=disable_bar)
         pangenome.status["geneSequences"] = "Loaded"
 
     if pangenome.status["genesClustered"] == "Computed":
@@ -976,3 +976,5 @@ def write_pangenome(
     logging.getLogger("PPanGGOLiN").info(
         f"Done writing the pangenome. It is in file : {filename}"
     )
+
+

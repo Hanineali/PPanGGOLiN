@@ -87,6 +87,47 @@ class Genedata:
             )
         )
 
+class Intergenicdata:
+    def __init__(
+        self,
+        source_id: str,
+        target_id: str,
+        edge: str,
+        neighbors: tuple,
+        offset: int
+    ):
+        """Constructor method
+
+        :param source: Intergenic source gene ID
+        :param target: Intergenic target gene ID
+
+        """
+        self.source_id = source_id
+        self.target_id = target_id
+        self.edge = edge
+        self.neighbors = tuple(neighbors)
+        self.offset = offset
+
+    def __eq__(self, other):
+        return (
+            self.source_id == other.source_id
+            and self.target_id == other.target_id
+            and self.edge == other.edge
+            and self.neighbors == other.neighbors
+            and self.offset == other.offset
+        )
+
+    def __hash__(self):
+        return hash(
+            (
+                self.source_id,
+                self.target_id,
+                self.edge,
+                self.offset,
+                tuple(self.neighbors)
+            )
+        )
+
 
 def get_number_of_organisms(pangenome: Pangenome) -> int:
     """Standalone function to get the number of organisms in a pangenome
@@ -1603,6 +1644,7 @@ def get_need_info(
     need_rgp: bool = False,
     need_spots: bool = False,
     need_gene_sequences: bool = False,
+    need_intergenic_sequences: bool = False,
     need_modules: bool = False,
     need_metadata: bool = False,
     metatypes: Set[str] = None,
@@ -1615,6 +1657,7 @@ def get_need_info(
         "rgp": False,
         "spots": False,
         "gene_sequences": False,
+        "intergenic_sequences": False,
         "modules": False,
         "metadata": False,
         "metatypes": metatypes,
@@ -1673,7 +1716,14 @@ def get_need_info(
                 "Your pangenome does not include gene sequences. "
                 "This is possible only if you provided your own cluster file with the 'cluster' subcommand"
             )
-
+    if need_intergenic_sequences:
+        if pangenome.status["geneSequences"] == "inFile":
+            need_info["intergenic_sequences"] = True
+        elif pangenome.status["geneSequences"] not in ["Computed", "Loaded"]:
+            raise Exception(
+                "Your pangenome does not include gene sequences. "
+                "This is possible only if you provided your own cluster file with the 'cluster' subcommand"
+            )
     if need_modules:
         if pangenome.status["modules"] == "inFile":
             need_info["modules"] = True
@@ -1755,6 +1805,7 @@ def check_pangenome_info(
     need_rgp: bool = False,
     need_spots: bool = False,
     need_gene_sequences: bool = False,
+    need_intergenic_sequences: bool = False,
     need_modules: bool = False,
     need_metadata: bool = False,
     metatypes: Optional[Set[str]] = None,
@@ -1773,6 +1824,7 @@ def check_pangenome_info(
     :param need_rgp: get RGP
     :param need_spots: get hotspot
     :param need_gene_sequences: get gene sequences
+    :param need_intergenic_sequences: get intergenic sequences
     :param need_modules: get modules
     :param need_metadata: get metadata
     :param metatypes: metatypes of the metadata to get (None means all types with metadata)
@@ -1788,6 +1840,7 @@ def check_pangenome_info(
         need_rgp,
         need_spots,
         need_gene_sequences,
+        need_intergenic_sequences,
         need_modules,
         need_metadata,
         metatypes,
