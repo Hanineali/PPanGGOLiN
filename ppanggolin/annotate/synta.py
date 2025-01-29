@@ -486,7 +486,7 @@ def get_dna_sequence(contig_seq: str, gene: Union[Gene, RNA]) -> str:
     elif gene.strand == "-":
         return reverse_complement(seq)
 
-def process_contigs(org, genes, contig_sequences, circular_contigs, offset=0):
+def process_contigs(org, genes, contig_sequences, circular_contigs):
     """
     Separates gene and intergenic sequence processing for contigs.
 
@@ -499,7 +499,7 @@ def process_contigs(org, genes, contig_sequences, circular_contigs, offset=0):
     """
     for contig_name, genes in genes.items():
         contig = org.get(contig_name)
-        contig.is_circular = contig.name in circular_contigs
+        contig.is_circular = True if contig.name in circular_contigs else False
 
         # Extract genes and intergenic sequences simultaneously
         process_genes_and_intergenics(contig, genes, contig_sequences[contig.name], org)
@@ -756,7 +756,6 @@ def create_intergenic(org, contig, start, end, contig_seq, intergenic_id, is_bor
     intergenic.fill_annotations(
         start=start,
         stop=end,
-        coordinates=[(start, end)],
         strand="+",  # Default strand
     )
     intergenic.dna = intergenic_seq
@@ -816,8 +815,21 @@ def annotate_organism(
     genes = syntaxic_annotation(
         org, fasta_file, contig_sequences, tmpdir, norna, kingdom, code, use_meta
     )
+
+    if isinstance(circular_contigs, Path):  # If it's a file, load it as a list
+        if circular_contigs.exists():
+            with circular_contigs.open() as f:
+                circular_contigs = [line.strip() for line in f]
+        else:
+            raise FileNotFoundError(f"Circular contigs file '{circular_contigs}' not found.")
+    elif not isinstance(circular_contigs, (list, set)):
+        raise TypeError(
+            f"Expected circular_contigs to be a list, set, or Path, got {type(circular_contigs)}."
+        )
+
+
     genes = overlap_filter(genes, allow_overlap=allow_overlap)
 
-    org = process_contigs(org, genes, contig_sequences, tmpdir)
+    org = process_contigs(org, genes, contig_sequences, circular_contigs)
 
     return org
