@@ -15,6 +15,7 @@ from ppanggolin.formats.readBinaries import Genedata, Intergenicdata
 
 
 genedata_counter = 0
+intergenicdata_counter = 0
 
 
 def get_max_len_annotations(pangenome: Pangenome) -> Tuple[int, int, int, int, int, int]:
@@ -380,7 +381,7 @@ def intergenicdata_desc(
         "source_id": tables.StringCol(itemsize=id_len),
         "target_id": tables.StringCol(itemsize=id_len),
         "offset": tables.UInt32Col(),
-        "neighbors": tables.StringCol()
+        "neighbors": tables.StringCol(itemsize=512) # a revoir
     }
 
 
@@ -432,7 +433,7 @@ def get_max_len_genedata(pangenome: Pangenome) -> Tuple[int, int, int]:
 
     return max_type_len, max_name_len, max_product_len
 
-def get_max_len_intergenicdata(pangenome: Pangenome) -> Tuple[int, int, int]:
+def get_max_len_intergenicdata(pangenome: Pangenome) -> int:
     """
     Get the maximum size of each gene data information to optimize disk space
 
@@ -444,8 +445,10 @@ def get_max_len_intergenicdata(pangenome: Pangenome) -> Tuple[int, int, int]:
     for org in pangenome.organisms:
         for contig in org.contigs:
             for intergenic in contig.intergenics:
-                if len(intergenic.source.ID) > max_id_len:
-                    max_id_len = len(intergenic.source.ID)
+                source_id = intergenic.source.ID if intergenic.source else "None"
+                target_id = intergenic.target.ID if intergenic.target else "None"
+
+                max_id_len = max(max_id_len, len(source_id), len(target_id))
 
     return max_id_len
 
@@ -486,9 +489,13 @@ def get_intergenicdata(feature: Intergenic) -> Intergenicdata:
     if not isinstance(feature, Intergenic):
         f"the type of feature {feature} is not an instance of Intergenic"
 
+    # Handle None source and target
+    source_id = feature.source.ID if feature.source else "None"
+    target_id = feature.target.ID if feature.target else "None"
+
     return Intergenicdata(
-        feature.source.ID,
-        feature.target.ID,
+        source_id,
+        target_id,
         feature.edge,
         feature.offset,
         tuple(feature.neighbors)
@@ -558,10 +565,11 @@ def write_intergenicdata(
     try:
         intergenicdata_table = annotation.intergenicdata
     except tables.exceptions.NoSuchNodeError:
+        logging.getLogger("PPanGGOLiN").warning("Creating intergenicdata table as it was missing.")
         intergenicdata_table = h5f.create_table(
             annotation,
             "intergenicdata",
-            intergenicdata_desc(* get_max_len_intergenicdata(pangenome)),
+            intergenicdata_desc(get_max_len_intergenicdata(pangenome)),
             expectedrows=len(intergenic_data_map),
         )
 
@@ -579,7 +587,7 @@ def write_intergenicdata(
         intergenicdata_row["source_id"] = intergenicdata.source_id
         intergenicdata_row["target_id"] = intergenicdata.target_id
         intergenicdata_row["offset"] = intergenicdata.offset
-        intergenicdata_row["neighbors"] = ",".join(intergenicdata.neighbors)
+        intergenicdata_row["neighbors"] = ",".join(map(str, intergenicdata.neighbors))
 
 
         intergenicdata_row.append()
@@ -818,7 +826,7 @@ def write_seq_2_seq_id_table(
             "/annotations",
             "sequences",
             sequence_desc(get_sequence_len(pangenome)),
-            expectedrows=len(pangenome.genes) + len(pangenome.intergenics),
+            expectedrows= pangenome.number_of_genes + pangenome.number_of_intergenics,
         )
         logging.getLogger("PPanGGOLiN").debug("Creating new sequences table.")
 
@@ -859,7 +867,7 @@ def create_intergenic_seq_table(pangenome: Pangenome, h5f: tables.File,
     intergenic_seq = h5f.create_table(
         "/annotations",
         "intergenicSequences",
-        intergenic_sequences_desc(*get_intergenic_sequences_len(pangenome)),
+        intergenic_sequences_desc(get_intergenic_sequences_len(pangenome)),
         expectedrows=pangenome.number_of_intergenics
     )
     return intergenic_seq
@@ -887,7 +895,7 @@ def process_writing_sequences(
                 curr_seq_id = id_counter
                 seq2seqid[gene.dna] = id_counter
                 id_counter += 1
-            gene_row["gene_id"] = gene.ID
+            gene_row["gene"] = gene.ID
             gene_row["seqid"] = curr_seq_id
             gene_row["type"] = gene.type
             gene_row.append()
@@ -896,13 +904,6 @@ def process_writing_sequences(
     gene_seq_table.flush()
 
     intergenic_row = intergenic_seq_table.row
-
-    if not pangenome.intergenics:
-        logging.getLogger("PPanGGOLiN").info("No intergenic sequences to write.")
-        intergenic_row["intergenic_id"] = "placeholder"
-        intergenic_row["seqid"] = -1
-        intergenic_seq_table.flush()
-
 
     for intergenic in tqdm(
             sorted(pangenome.intergenics, key=lambda x: x.ID),

@@ -21,7 +21,7 @@ from ppanggolin.formats.writeMetadata import (
     write_metadata_status,
 )
 from ppanggolin.genome import Feature, Gene
-from ppanggolin.formats.readBinaries import read_genedata, Genedata
+from ppanggolin.formats.readBinaries import read_genedata, Genedata, Intergenicdata
 
 
 def getmean(arg: iter) -> float:
