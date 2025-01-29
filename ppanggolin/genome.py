@@ -907,7 +907,7 @@ class Contig(MetaFeatures):
 
         # Add to both neighbor and coordinate-based getters
         self._intergenic_by_neighbors[key] = intergenic
-        coordinate = intergenic.coordinates
+        coordinate = tuple(intergenic.coordinates) if isinstance(intergenic.coordinates,list) else intergenic.coordinates
         self._intergenic_getter[coordinate] = intergenic
 
     def get_intergenic(self, source: str, target: str) -> Intergenic:
