@@ -522,7 +522,7 @@ def process_genes_and_intergenics(contig, features_list, contig_seq, org):
         # Extract intergenic region at the start of the contig
         start = 1
         end = features_list[0].start - 1
-        intergenic_id = None
+        intergenic_id = f"start_border_{features_list[0].ID}"
         create_intergenic(
             org=org,
             contig=contig,
@@ -552,19 +552,21 @@ def process_genes_and_intergenics(contig, features_list, contig_seq, org):
             if feature.stop < next_feature.start - 1:  # Non-overlapping region
                 start = feature.stop + 1
                 end = next_feature.start - 1
-                intergenic_id = f"{feature.ID} | {next_feature.ID}"
-                create_intergenic(
-                    org=org,
-                    contig=contig,
-                    start=start,
-                    end=end,
-                    contig_seq=contig_seq,
-                    intergenic_id=intergenic_id,
-                    is_border=False,
-                    source=feature,
-                    target=next_feature,
-                    offset=0
-                )
+
+                if start <= end:
+                    intergenic_id = f"{feature.ID} | {next_feature.ID}"
+                    create_intergenic(
+                        org=org,
+                        contig=contig,
+                        start=start,
+                        end=end,
+                        contig_seq=contig_seq,
+                        intergenic_id=intergenic_id,
+                        is_border=False,
+                        source=feature,
+                        target=next_feature,
+                        offset=0
+                    )
             elif feature.stop >= next_feature.start - 1:  # Overlapping region
                 overlap_length = feature.stop - next_feature.start + 1
                 intergenic_id = f"{feature.ID} | {next_feature.ID}"
@@ -585,19 +587,20 @@ def process_genes_and_intergenics(contig, features_list, contig_seq, org):
     if features_list and features_list[-1].stop < contig_length:
         start = features_list[-1].stop + 1
         end = contig_length
-        intergenic_id = None
-        create_intergenic(
-            org=org,
-            contig=contig,
-            start=start,
-            end=end,
-            contig_seq=contig_seq,
-            intergenic_id=intergenic_id,
-            is_border=True,
-            source=features_list[-1],
-            target=None,
-            offset=0
-        )
+        if start <= end:
+            intergenic_id = f"end_border_{features_list[-1].ID}"
+            create_intergenic(
+                org=org,
+                contig=contig,
+                start=start,
+                end=end,
+                contig_seq=contig_seq,
+                intergenic_id=intergenic_id,
+                is_border=True,
+                source=features_list[-1],
+                target=None,
+                offset=0
+            )
 
     # Handle circular contigs
     if is_circular and features_list:
@@ -606,19 +609,26 @@ def process_genes_and_intergenics(contig, features_list, contig_seq, org):
         if last_feature.stop < contig_length and first_feature.start > 1:
             start = last_feature.stop + 1
             end = first_feature.start - 1
-            intergenic_id = f"{last_feature.ID} | {first_feature.ID}"
-            create_intergenic(
-                org=org,
-                contig=contig,
-                start=start,
-                end=end,
-                contig_seq=contig_seq,
-                intergenic_id=intergenic_id,
-                is_border=False,
-                source=last_feature,
-                target=first_feature,
-                offset=0
-            )
+
+            if start > contig_length:  # Wrap around case
+                start -= contig_length
+            if end > contig_length:  # Wrap around case
+                end -= contig_length
+
+            if start <= end:
+                intergenic_id = f"{last_feature.ID} | {first_feature.ID}"
+                create_intergenic(
+                    org=org,
+                    contig=contig,
+                    start=start,
+                    end=end,
+                    contig_seq=contig_seq,
+                    intergenic_id=intergenic_id,
+                    is_border=False,
+                    source=last_feature,
+                    target=first_feature,
+                    offset=0
+                )
 
 def process_genes_and_intergenics_gff_gbff(contig, features_list, contig_seq, org):
     """
@@ -637,7 +647,7 @@ def process_genes_and_intergenics_gff_gbff(contig, features_list, contig_seq, or
         # Extract intergenic region at the start of the contig
         start = 1
         end = features_list[0].start - 1
-        intergenic_id = None
+        intergenic_id = f"start_border_{features_list[0].ID}"
         create_intergenic(
             org=org,
             contig=contig,
@@ -662,19 +672,20 @@ def process_genes_and_intergenics_gff_gbff(contig, features_list, contig_seq, or
             if feature.stop < next_feature.start - 1:  # Non-overlapping region
                 start = feature.stop + 1
                 end = next_feature.start - 1
-                intergenic_id = f"{feature.ID} | {next_feature.ID}"
-                create_intergenic(
-                    org=org,
-                    contig=contig,
-                    start=start,
-                    end=end,
-                    contig_seq=contig_seq,
-                    intergenic_id=intergenic_id,
-                    is_border=False,
-                    source=feature,
-                    target=next_feature,
-                    offset=0
-                )
+                if start <= end:
+                    intergenic_id = f"{feature.ID} | {next_feature.ID}"
+                    create_intergenic(
+                        org=org,
+                        contig=contig,
+                        start=start,
+                        end=end,
+                        contig_seq=contig_seq,
+                        intergenic_id=intergenic_id,
+                        is_border=False,
+                        source=feature,
+                        target=next_feature,
+                        offset=0
+                    )
 
             elif feature.stop >= next_feature.start - 1:  # Overlapping region
                 overlap_length = feature.stop - next_feature.start + 1
@@ -696,19 +707,20 @@ def process_genes_and_intergenics_gff_gbff(contig, features_list, contig_seq, or
     if features_list and features_list[-1].stop < contig_length:
         start = features_list[-1].stop + 1
         end = contig_length
-        intergenic_id = None
-        create_intergenic(
-            org=org,
-            contig=contig,
-            start=start,
-            end=end,
-            contig_seq=contig_seq,
-            intergenic_id=intergenic_id,
-            is_border=True,
-            source=features_list[-1],
-            target=None,
-            offset=0
-        )
+        if start <= end:
+            intergenic_id = f"end_border_{features_list[-1].ID}"
+            create_intergenic(
+                org=org,
+                contig=contig,
+                start=start,
+                end=end,
+                contig_seq=contig_seq,
+                intergenic_id=intergenic_id,
+                is_border=True,
+                source=features_list[-1],
+                target=None,
+                offset=0
+            )
 
     # Handle circular contigs
     if is_circular and features_list:
@@ -717,19 +729,26 @@ def process_genes_and_intergenics_gff_gbff(contig, features_list, contig_seq, or
         if last_feature.stop < contig_length and first_feature.start > 1:
             start = last_feature.stop + 1
             end = first_feature.start - 1
-            intergenic_id = f"{last_feature.ID} | {first_feature.ID}"
-            create_intergenic(
-                org=org,
-                contig=contig,
-                start=start,
-                end=end,
-                contig_seq=contig_seq,
-                intergenic_id=intergenic_id,
-                is_border=False,
-                source=last_feature,
-                target=first_feature,
-                offset=0
-            )
+
+            if start > contig_length:  # Wrap around case
+                start -= contig_length
+            if end > contig_length:  # Wrap around case
+                end -= contig_length
+
+            if start <= end:
+                intergenic_id = f"{last_feature.ID} | {first_feature.ID}"
+                create_intergenic(
+                    org=org,
+                    contig=contig,
+                    start=start,
+                    end=end,
+                    contig_seq=contig_seq,
+                    intergenic_id=intergenic_id,
+                    is_border=False,
+                    source=last_feature,
+                    target=first_feature,
+                    offset=0
+                )
 
 
 def create_intergenic(org, contig, start, end, contig_seq, intergenic_id, is_border, source, target, offset):
@@ -815,18 +834,6 @@ def annotate_organism(
     genes = syntaxic_annotation(
         org, fasta_file, contig_sequences, tmpdir, norna, kingdom, code, use_meta
     )
-
-    if isinstance(circular_contigs, Path):  # If it's a file, load it as a list
-        if circular_contigs.exists():
-            with circular_contigs.open() as f:
-                circular_contigs = [line.strip() for line in f]
-        else:
-            raise FileNotFoundError(f"Circular contigs file '{circular_contigs}' not found.")
-    elif not isinstance(circular_contigs, (list, set)):
-        raise TypeError(
-            f"Expected circular_contigs to be a list, set, or Path, got {type(circular_contigs)}."
-        )
-
 
     genes = overlap_filter(genes, allow_overlap=allow_overlap)
 
