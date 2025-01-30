@@ -522,7 +522,7 @@ def process_genes_and_intergenics(contig, features_list, contig_seq, org):
         # Extract intergenic region at the start of the contig
         start = 1
         end = features_list[0].start - 1
-        intergenic_id = f"start_border_{features_list[0].ID}"
+        intergenic_id = f"|{features_list[0].ID}"
         create_intergenic(
             org=org,
             contig=contig,
@@ -567,6 +567,7 @@ def process_genes_and_intergenics(contig, features_list, contig_seq, org):
                         target=next_feature,
                         offset=0
                     )
+
             elif feature.stop >= next_feature.start - 1:  # Overlapping region
                 overlap_length = feature.stop - next_feature.start + 1
                 intergenic_id = f"{feature.ID} | {next_feature.ID}"
@@ -588,7 +589,7 @@ def process_genes_and_intergenics(contig, features_list, contig_seq, org):
         start = features_list[-1].stop + 1
         end = contig_length
         if start <= end:
-            intergenic_id = f"end_border_{features_list[-1].ID}"
+            intergenic_id = f"{features_list[-1].ID}|"
             create_intergenic(
                 org=org,
                 contig=contig,
@@ -647,7 +648,7 @@ def process_genes_and_intergenics_gff_gbff(contig, features_list, contig_seq, or
         # Extract intergenic region at the start of the contig
         start = 1
         end = features_list[0].start - 1
-        intergenic_id = f"start_border_{features_list[0].ID}"
+        intergenic_id = f"{features_list[0].ID}|"
         create_intergenic(
             org=org,
             contig=contig,
@@ -708,7 +709,7 @@ def process_genes_and_intergenics_gff_gbff(contig, features_list, contig_seq, or
         start = features_list[-1].stop + 1
         end = contig_length
         if start <= end:
-            intergenic_id = f"end_border_{features_list[-1].ID}"
+            intergenic_id = f"{features_list[-1].ID}|"
             create_intergenic(
                 org=org,
                 contig=contig,
@@ -784,6 +785,8 @@ def create_intergenic(org, contig, start, end, contig_seq, intergenic_id, is_bor
     intergenic.offset = offset
     intergenic.fill_parents(org, contig)
     contig.add_intergenic(intergenic)
+
+    return intergenic
 
 
 def annotate_organism(
