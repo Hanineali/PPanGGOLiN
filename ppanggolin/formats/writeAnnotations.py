@@ -380,8 +380,10 @@ def intergenicdata_desc(
         "intergenicdata_id": tables.UInt32Col(),
         "source_id": tables.StringCol(itemsize=id_len),
         "target_id": tables.StringCol(itemsize=id_len),
+        "start": tables.UInt32Col(),
+        "stop": tables.UInt32Col(),
         "offset": tables.UInt32Col(),
-        "neighbors": tables.StringCol(itemsize=512) # a revoir
+        "neighbors": tables.StringCol(itemsize=512), # a revoir
     }
 
 
@@ -496,9 +498,12 @@ def get_intergenicdata(feature: Intergenic) -> Intergenicdata:
     return Intergenicdata(
         source_id,
         target_id,
+        feature.start,
+        feature.stop,
         feature.edge,
         feature.offset,
-        tuple(feature.neighbors)
+        tuple(feature.neighbors),
+        coordinates=feature.coordinates,
     )
 
 
@@ -577,6 +582,7 @@ def write_intergenicdata(
         f"Writing {len(intergenic_data_map)} intergenic-related data "
         "(can be lower than the number of intergenics)"
     )
+
     intergenicdata_row = intergenicdata_table.row
     for intergenicdata, intergenicdata_id in tqdm(
         intergenic_data_map.items(),
@@ -586,6 +592,8 @@ def write_intergenicdata(
         intergenicdata_row["intergenicdata_id"] = intergenicdata_id
         intergenicdata_row["source_id"] = intergenicdata.source_id
         intergenicdata_row["target_id"] = intergenicdata.target_id
+        intergenicdata_row["start"] = intergenicdata.start
+        intergenicdata_row["stop"] = intergenicdata.stop
         intergenicdata_row["offset"] = intergenicdata.offset
         intergenicdata_row["neighbors"] = ",".join(map(str, intergenicdata.neighbors))
 
@@ -921,8 +929,8 @@ def process_writing_sequences(
                 intergenic_row["seqid"] = curr_seq_id
                 intergenic_row.append()
             intergenic_seq_table.flush()
-        else:
-            logging.getLogger("PPanGGOLiN").warning(f"Intergenic {intergenic.ID} has no DNA sequence.")
+        #else:
+            #logging.getLogger("PPanGGOLiN").warning(f"Intergenic {intergenic.ID} has no DNA sequence.")
         intergenic_seq_table.flush()
 
     return seq2seqid
@@ -937,5 +945,5 @@ def write_gene_intergenic_sequences(
     seq2seqid = process_writing_sequences(gene_seq_table, intergenic_seq, pangenome, disable_bar)
 
     # get/create sequence to seqID table
-    write_seq_2_seq_id_table(pangenome, h5f,seq2seqid)
+    write_seq_2_seq_id_table(pangenome, h5f, seq2seqid)
 

@@ -26,7 +26,7 @@ from ppanggolin.annotate.synta import (
     get_dna_sequence,
     init_contig_counter,
     contig_counter,
-    process_genes_and_intergenics_gff_gbff
+    process_genes_and_intergenics_gff_gbff, process_contigs_gff_gbff
 )
 from ppanggolin.pangenome import Pangenome
 from ppanggolin.genome import Organism, Gene, RNA, Contig
@@ -816,11 +816,13 @@ def read_org_gbff(
             else:
                 rna_counter += 1
 
+
     # Process contigs to extract genes and intergenic regions
     for contig in organism.contigs:
         all_features = sorted(
             list(contig.genes) + list(contig.RNAs), key=lambda x: x.start
         )
+        #print(f"Checking features for contig {contig.name}: {len(all_features)} genes found")
         process_genes_and_intergenics_gff_gbff(contig, all_features, contig_sequences[contig.name], organism)
 
     genome_metadata, contig_to_uniq_metadata = combine_contigs_metadata(
@@ -839,7 +841,6 @@ def read_org_gbff(
         )
 
     return organism, True
-
 
 def parse_db_xref_metadata(
     db_xref_values: List[str], annot_file_path: Path = ""
@@ -1663,8 +1664,8 @@ def get_gene_sequences_from_fastas(
             for contig in org.contigs:
                 try:
                     # sort genes by start position
-                    sorted_genes = sorted(contig.genes, key=lambda x: x.start)
-                    process_genes_and_intergenics_gff_gbff(contig,sorted_genes,fasta_dict[org][contig.name], org)
+                    all_features = sorted(list(contig.genes) + list(contig.RNAs), key=lambda x: x.start)
+                    process_genes_and_intergenics_gff_gbff(contig,all_features,fasta_dict[org][contig.name], org)
                     bar.update()
                     # for rna in contig.RNAs:
                     #     rna.add_sequence(get_dna_sequence(fasta_dict[org][contig.name], rna))
