@@ -18,6 +18,7 @@ import warnings
 # installed libraries
 from tqdm import tqdm
 from tables.path import check_name_validity, NaturalNameWarning
+from typing import Optional
 
 # local libraries
 from ppanggolin.annotate.synta import (
@@ -26,7 +27,7 @@ from ppanggolin.annotate.synta import (
     get_dna_sequence,
     init_contig_counter,
     contig_counter,
-    process_genes_and_intergenics_gff_gbff, process_contigs_gff_gbff
+    process_genes_and_intergenics_gff_gbff
 )
 from ppanggolin.pangenome import Pangenome
 from ppanggolin.genome import Organism, Gene, RNA, Contig
@@ -816,7 +817,6 @@ def read_org_gbff(
             else:
                 rna_counter += 1
 
-
     # Process contigs to extract genes and intergenic regions
     for contig in organism.contigs:
         all_features = sorted(
@@ -824,6 +824,8 @@ def read_org_gbff(
         )
         #print(f"Checking features for contig {contig.name}: {len(all_features)} genes found")
         process_genes_and_intergenics_gff_gbff(contig, all_features, contig_sequences[contig.name], organism)
+        #print_intergenic_sequences(organism,"GCF_000026905.1")
+        #print_genes_sequences(organism,"GCF_000026905.1")
 
     genome_metadata, contig_to_uniq_metadata = combine_contigs_metadata(
         contig_to_metadata
@@ -1225,6 +1227,7 @@ def read_org_gff(
             process_genes_and_intergenics_gff_gbff(contig, all_features, contig_sequences[contig.name], org)
 
 
+
     # add metadata to genome and contigs
     if contig_name_to_region_info:
         add_metadata_from_gff_file(contig_name_to_region_info, org, gff_file_path)
@@ -1235,7 +1238,6 @@ def read_org_gff(
             f"in {gff_file_path}. Provided translation_table argument value was used instead: {translation_table}."
         )
     return org, has_fasta
-
 
 def add_metadata_from_gff_file(
     contig_name_to_region_info: Dict[str, Dict[str, str]],
@@ -1486,7 +1488,6 @@ def chose_gene_identifiers(pangenome: Pangenome) -> bool:
     else:
         return False
 
-
 def local_identifiers_are_unique(genes: Iterable[Gene]) -> bool:
     """
     Check if local_identifiers of genes are uniq in order to decide if they should be used as gene id.
@@ -1680,6 +1681,46 @@ def get_gene_sequences_from_fastas(
                     )
                     raise KeyError(msg)
     pangenome.status["geneSequences"] = "Computed"
+
+""" Functions used for debugging """
+
+def print_intergenic_sequences(organism: Organism, target_organism: Optional[str] = None):
+
+    print(f"\n Intergenic Regions for Organism: {target_organism}")
+
+    for contig in organism.contigs:
+        print(f"\n Contig: {contig.name} | Circular: {contig.is_circular}")
+
+        for intergenic in contig.intergenics:  # Iterate through intergenic regions
+            print(f" Intergenic ID: {intergenic.ID}")
+            print(f"   - Coordinates: {intergenic.coordinates}")
+            print(f"   - Sequence Length: {len(intergenic.dna) if intergenic.dna else 'N/A'}")
+            print(f"   - Border Intergenic: {intergenic.is_border}")
+            print(f"   - Sequence: {intergenic.dna}")  # Print first 50 bp only
+
+        print("\n" + "=" * 50)
+
+def print_genes_sequences(organism: Organism, target_organism: Optional[str] = None):
+    """
+    Print all extracted intergenic sequences for a specific organism.
+
+    :param organism: Organism object containing contigs and intergenic regions.
+    :param target_organism: The organism ID for which intergenic sequences should be printed.
+    """
+    print(f"\n genes for Organism: {target_organism}")
+
+    for contig in organism.contigs:
+        print(f"\n Contig: {contig.name} | Circular: {contig.is_circular}")
+        all_features = sorted(list(contig.genes) + list(contig.RNAs), key=lambda x: x.start)
+
+        print(f"{len(all_features)}")
+
+        for gene in all_features:  # Iterate through intergenic regions
+            print(f" Gene ID: {gene.ID}")
+            print(f"   - Coordinates: {gene.coordinates}")
+
+
+        print("\n" + "=" * 50)
 
 
 def annotate_pangenome(
