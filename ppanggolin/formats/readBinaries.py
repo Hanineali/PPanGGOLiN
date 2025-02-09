@@ -92,9 +92,12 @@ class Intergenicdata:
         self,
         source_id: str,
         target_id: str,
+        start: int,
+        stop: int,
         edge: str,
         offset: int,
-        neighbors: tuple,
+        neighbors: Tuple[Gene, Gene],
+        coordinates: List[Tuple[int]] = None
     ):
         """Constructor method
 
@@ -104,17 +107,23 @@ class Intergenicdata:
         """
         self.source_id = source_id
         self.target_id = target_id
+        self.start = start
+        self.stop = stop
         self.edge = edge
         self.offset = offset
-        self.neighbors = tuple(neighbors)
+        self.neighbors = neighbors
+        self.coordinates = coordinates
 
     def __eq__(self, other):
         return (
             self.source_id == other.source_id
             and self.target_id == other.target_id
+            and self.start == other.start
+            and self.stop == other.stop
             and self.edge == other.edge
             and self.offset == other.offset
             and self.neighbors == other.neighbors
+            and self.coordinates == other.coordinates
         )
 
     def __hash__(self):
@@ -122,9 +131,12 @@ class Intergenicdata:
             (
                 self.source_id,
                 self.target_id,
+                self.start,
+                self.stop,
                 self.edge,
                 self.offset,
-                tuple(self.neighbors)
+                tuple(self.neighbors),
+                tuple(self.coordinates)
             )
         )
 
@@ -548,7 +560,6 @@ def get_seqid_to_genes(
 
     return seq_id_to_genes
 
-
 def write_genes_seq_from_pangenome_file(
     h5f: tables.File,
     outpath: Path,
@@ -857,6 +868,109 @@ def write_genes_from_pangenome_file(
         f"of the gene families : '{outpath}{'.gz' if compress else ''}"
     )
 
+
+def write_intergenic_sequences_from_file(
+        pangenome_filename: str,
+        output: Path,
+        compress: bool = False,
+        disable_bar: bool = False,
+):
+    """
+    Reads intergenic sequences from the `sequences` table in the HDF5 pangenome file
+    and writes them to a FASTA file.
+
+    :param pangenome_filename: Path to the pangenome HDF5 file.
+    :param output: Output directory for the intergenic sequences file.
+    :param compress: Boolean flag to compress output as .gz.
+    :param disable_bar: Boolean flag to disable progress bar.
+    """
+
+    outpath = output / "intergenic_sequences.fna"
+
+    with tables.open_file(pangenome_filename, "r",driver_core_backing_store=0) as h5f:
+
+        if "/annotations/intergenicSequences" not in h5f:
+            logging.getLogger("PPanGGOLiN").warning(
+                "No intergenic sequences found in the pangenome file."
+            )
+            return
+
+        seq_id_to_intergenics = get_seqid_to_intergenics(
+            h5f, disable_bar=disable_bar
+        )
+
+        write_intergenics_seq_from_pangenome_file(
+            h5f, outpath, compress, seq_id_to_intergenics, disable_bar=disable_bar
+        )
+
+
+def write_intergenics_seq_from_pangenome_file(
+    h5f: tables.File,
+    outpath: Path,
+    compress: bool,
+    seq_id_to_intergenics: Dict[int, List[str]],
+    disable_bar: bool,
+):
+    """
+    Writes intergenic sequences from the pangenome file to an output file.
+
+    Only sequences whose IDs match the ones in seq_id_to_intergenics will be written.
+
+    :param h5f: The open HDF5 pangenome file containing sequence data.
+    :param outpath: The path to the output file where sequences will be written.
+    :param compress: Boolean flag to indicate whether output should be compressed.
+    :param seq_id_to_intergenics: A dictionary mapping sequence IDs to lists of intergenic names.
+    :param disable_bar: Boolean flag to disable the progress bar.
+    """
+
+    with write_compressed_or_not(file_path=outpath, compress=compress) as file_obj:
+
+        seq_table = h5f.root.annotations.sequences
+
+        with tqdm(
+            total=len(seq_id_to_intergenics), unit="sequence", disable=disable_bar
+        ) as pbar:
+
+            for row in read_chunks(table=seq_table, chunk=20000):
+                seqid = row["seqid"]
+
+                if seqid in seq_id_to_intergenics:
+                    dna_sequence = row["dna"].decode(errors="ignore")  # Decode safely
+
+                    for intergenic_id in seq_id_to_intergenics[seqid]:
+                        file_obj.write(f">{intergenic_id}\n")
+                        file_obj.write(f"{dna_sequence}\n")
+
+                    pbar.update(1)
+
+
+def get_seqid_to_intergenics(
+    h5f: tables.File,
+    disable_bar: bool = False,
+) -> Dict[int, List[str]]:
+    """
+    Creates a mapping of sequence IDs to intergenics ID.
+
+    :param h5f: The open HDF5 pangenome file containing gene sequence data.
+    :param genes: A list of gene names to include in the mapping (if `get_all_genes` is False).
+    :param get_all_genes: Boolean flag to indicate if all genes should be included in the mapping.
+                          If set to True, all genes will be added regardless of the `genes` parameter.
+    :param disable_bar: Boolean flag to disable the progress bar if set to True.
+    :return: A dictionary mapping sequence IDs (integers) to lists of intergenics id (strings).
+    """
+
+    seq_id_to_intergenics = defaultdict(list)
+    intergenics_seq_table = h5f.root.annotations.intergenicSequences
+
+    for row in tqdm(
+            read_chunks(intergenics_seq_table, chunk=20000),
+            total=intergenics_seq_table.nrows,
+            unit="intergenic",
+            disable=disable_bar,
+    ):
+        seq_id_to_intergenics[row["seqid"]].append(row["intergenic_id"].decode(errors="ignore"))
+
+    return seq_id_to_intergenics
 
 def read_graph(pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False):
     """

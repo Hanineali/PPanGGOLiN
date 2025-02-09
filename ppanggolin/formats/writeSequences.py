@@ -30,6 +30,7 @@ from ppanggolin.formats.readBinaries import (
     write_genes_from_pangenome_file,
     write_fasta_gene_fam_from_pangenome_file,
     write_fasta_prot_fam_from_pangenome_file,
+    write_intergenic_sequences_from_file,
 )
 
 module_regex = re.compile(r"^module_\d+")  # \d == [0-9]
@@ -432,6 +433,7 @@ def write_sequence_files(
     soft_core: float = 0.95,
     regions: str = None,
     genes: str = None,
+    intergenics: str = None,
     proteins: str = None,
     gene_families: str = None,
     prot_families: str = None,
@@ -449,6 +451,7 @@ def write_sequence_files(
     :param soft_core: Soft core threshold to use
     :param regions: Write the RGP nucleotide sequences
     :param genes: Write all nucleotide CDS sequences
+    :param intergenics: Write all nucleotide intergenics sequences
     :param proteins: Write amino acid CDS sequences.
     :param gene_families: Write representative nucleotide sequences of gene families.
     :param prot_families: Write representative amino acid sequences of gene families.
@@ -506,6 +509,20 @@ def write_sequence_files(
 
         genes = None
 
+    if intergenics is not None:
+
+        logging.getLogger("PPanGGOLiN").info(
+            "Writing intergenics nucleotide sequences by reading the pangenome file directly."
+        )
+        write_intergenic_sequences_from_file(
+            pangenome_filename=pangenome.file,
+            output=output,
+            compress=compress,
+            disable_bar=disable_bar,
+        )
+
+        intergenics = None
+
     if proteins is not None:
 
         logging.getLogger("PPanGGOLiN").info(
@@ -537,7 +554,6 @@ def write_sequence_files(
             pangenome, output, regions, fasta, anno, compress, disable_bar
         )
 
-
 def launch(args: argparse.Namespace):
     """
     Command launcher
@@ -563,12 +579,13 @@ def launch(args: argparse.Namespace):
         soft_core=args.soft_core,
         regions=args.regions,
         genes=args.genes,
+        intergenics=args.intergenics,
         proteins=args.proteins,
         gene_families=args.gene_families,
         prot_families=args.prot_families,
         compress=args.compress,
         disable_bar=args.disable_prog_bar,
-        **translate_kwgs,
+        **translate_kwgs
     )
 
 
@@ -659,6 +676,12 @@ def parser_seq(parser: argparse.ArgumentParser):
         required=False,
         type=filter_values,
         help=f"Write all nucleotide CDS sequences. {poss_values_log}",
+    )
+    onereq.add_argument(
+        "--intergenics",
+        required=False,
+        type=filter_values,
+        help=f"Write all intergneics sequences. {poss_values_log}",
     )
     onereq.add_argument(
         "--proteins",
