@@ -303,7 +303,7 @@ def write_intergenics(
     annotation: tables.Group,
     intergenic_desc: Dict[str, Union[tables.StringCol, tables.UInt32Col, tables.BoolCol]],
     disable_bar=False,
-):
+) -> Dict[Intergenicdata, int]:
     """
     Write intergenic region information in the pangenome file.
 
@@ -312,9 +312,11 @@ def write_intergenics(
     :param annotation: Annotation table group.
     :param intergenic_desc: Intergenic table description.
     :param disable_bar: Allow to disable progress bar.
+
+    :returns: Dictionary linking intergenicdata to intergenic identifier
     """
-    intergenic_data_map = {}
     global intergenicdata_counter
+    intergenic_data_map = {}
     intergenic_table = h5f.create_table(
         annotation, "intergenics", intergenic_desc, expectedrows=pangenome.number_of_intergenics
     )
@@ -482,19 +484,16 @@ def get_genedata(feature: Union[Gene, RNA]) -> Genedata:
 
 def get_intergenicdata(feature: Intergenic) -> Intergenicdata:
     """
-    Gets the genedata type of Feature
+    Gets the intergenicdata of Feature
 
-    :param feature: Gene or RNA object
+    :param feature: should be an intergenic object
 
     :return: Tuple with a Feature associated data
     """
-    if not isinstance(feature, Intergenic):
-        f"the type of feature {feature} is not an instance of Intergenic"
-
-    # Handle None source and target
-    source_id = feature.source.ID if feature.source else "None"
-    target_id = feature.target.ID if feature.target else "None"
-
+    if isinstance(feature, Intergenic):
+        # Handle None source and target
+        source_id = feature.source.ID if feature.source else "None"
+        target_id = feature.target.ID if feature.target else "None"
     return Intergenicdata(
         source_id,
         target_id,
@@ -570,7 +569,6 @@ def write_intergenicdata(
     try:
         intergenicdata_table = annotation.intergenicdata
     except tables.exceptions.NoSuchNodeError:
-        logging.getLogger("PPanGGOLiN").warning("Creating intergenicdata table as it was missing.")
         intergenicdata_table = h5f.create_table(
             annotation,
             "intergenicdata",
@@ -796,7 +794,7 @@ def sequence_desc(
 ) -> Dict[str, Union[tables.UIntCol, tables.StringCol]]:
     """
     Table description to save sequences
-    :param max_seq_len: Maximum size of gene type
+    :param max_seq_len: Maximum size of feature (gene or intergenic)
     :return: Formatted table
     """
     return {"seqid": tables.UInt32Col(), "dna": tables.StringCol(itemsize=max_seq_len)}
@@ -834,7 +832,7 @@ def write_seq_2_seq_id_table(
             "/annotations",
             "sequences",
             sequence_desc(get_sequence_len(pangenome)),
-            expectedrows= pangenome.number_of_genes + pangenome.number_of_intergenics,
+            expectedrows= len(seq2seqid),
         )
         logging.getLogger("PPanGGOLiN").debug("Creating new sequences table.")
 
@@ -925,24 +923,24 @@ def process_writing_sequences(
                 curr_seq_id = id_counter
                 seq2seqid[intergenic.dna] = id_counter
                 id_counter += 1
-                intergenic_row["intergenic_id"] = intergenic.ID
-                intergenic_row["seqid"] = curr_seq_id
-                intergenic_row.append()
-            intergenic_seq_table.flush()
+            intergenic_row["intergenic_id"] = intergenic.ID
+            intergenic_row["seqid"] = curr_seq_id
+            intergenic_row.append()
+
         #else:
             #logging.getLogger("PPanGGOLiN").warning(f"Intergenic {intergenic.ID} has no DNA sequence.")
-        intergenic_seq_table.flush()
+    intergenic_seq_table.flush()
 
     return seq2seqid
 
 def write_gene_intergenic_sequences(
         pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False
 ):
-    gene_seq_table = create_gene_seq_table(pangenome, h5f)
+    gene_seq = create_gene_seq_table(pangenome, h5f)
 
     intergenic_seq = create_intergenic_seq_table(pangenome, h5f)
 
-    seq2seqid = process_writing_sequences(gene_seq_table, intergenic_seq, pangenome, disable_bar)
+    seq2seqid = process_writing_sequences(gene_seq, intergenic_seq, pangenome, disable_bar)
 
     # get/create sequence to seqID table
     write_seq_2_seq_id_table(pangenome, h5f, seq2seqid)
