@@ -559,7 +559,13 @@ def process_genes_intergenics_seq(contig, features_list, contig_seq, org):
                 next_feature = features_list[i + 1]
                 # Handle Non-Overlapping Intergenic**
                 if feature.stop == next_feature.start or feature.stop + 1 == next_feature.start:
-                    continue
+                    start, stop = feature.stop, next_feature.start
+                    coordinates = [(start, stop)]
+                    intergenic_seq = None
+                    intergenic_regions.append((
+                        coordinates, feature, next_feature, f"{feature.ID} | {next_feature.ID}", False, 0,
+                        intergenic_seq
+                    ))
 
                 elif next_feature.start - feature.stop >= 2:
                     start, stop = feature.stop + 1, next_feature.start - 1
@@ -681,7 +687,13 @@ def process_genes_and_intergenics_gff_gbff(contig, features_list, contig_seq, or
                 next_feature = features_list[i + 1]
                 # Handle Non-Overlapping Intergenic**
                 if feature.stop == next_feature.start or feature.stop + 1 == next_feature.start:
-                    continue
+                    start, stop = feature.stop, next_feature.start
+                    coordinates = [(start, stop)]
+                    intergenic_seq = None
+                    intergenic_regions.append((
+                        coordinates, feature, next_feature, f"{feature.ID} | {next_feature.ID}", False, 0,
+                        intergenic_seq
+                    ))
 
                 elif next_feature.start - feature.stop >= 2:
                     start, stop = feature.stop + 1, next_feature.start - 1
@@ -841,8 +853,8 @@ def annotate_organism(
 
     org = process_contigs(org, genes, contig_sequences, circular_contigs)
 
-    # print_intergenic_sequences(org,"GCF_000026905.1_ASM2690v1_genomic")
-    # print_genes_sequences(org,"GCF_000026905.1_ASM2690v1_genomic")
+    #print_intergenic_sequences(org,"GCF_000092665.1_ASM9266v1_genomic")
+    print_genes_sequences(org,"GCF_000092665.1_ASM9266v1_genomic")
 
     return org
 
