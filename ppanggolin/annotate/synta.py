@@ -6,11 +6,13 @@ import os
 import tempfile
 from io import TextIOWrapper
 from multiprocessing import Value
+import subprocess
 from subprocess import Popen, PIPE
 import ast
 from collections import defaultdict
 from typing import Dict, List, Optional, Union, Generator, Tuple
 from pathlib import Path
+import time
 
 from PIL.ImageChops import offset
 # install libraries
@@ -59,20 +61,20 @@ def reverse_complement(seq: str):
         rcseq += complement[i]
     return rcseq
 
-
+"""
 def launch_aragorn(
     fna_file: str, org: Organism, contig_to_length: Dict[str, int]
 ) -> defaultdict:
-    """
+    "
     Launches Aragorn to annotate tRNAs.
 
     :param fna_file: file-like object containing the uncompressed fasta sequences
     :param org: Organism which will be annotated
 
     :return: Annotated genes in a list of gene objects
-    """
+    "
     locustag = org.name
-    cmd = ["aragorn", "-t", "-gcbact", "-l", "-w", fna_file]
+    cmd = ["aragorn", "-t", "-gcbact", "-m", "-l", "-w", fna_file]
     logging.getLogger("PPanGGOLiN").debug(f"aragorn command : {' '.join(cmd)}")
     p = Popen(cmd, stdout=PIPE)
     # loading the whole thing, reverting it to 'pop' in order.
@@ -106,17 +108,166 @@ def launch_aragorn(
                 continue
 
             c += 1
-            gene = RNA(rna_id=locustag + "_tRNA_" + str(c).zfill(4))
+            # Extract RNA type (tRNA or tmRNA) and replace "-" with "_"
+            rna_fam = line_data[1].replace("-","_")
+            rna_type = rna_fam.split("_")[0]
+            anticodon = None
+
+            if "tRNA_" in rna_type:
+                # Extract anticodon (last column, inside parentheses)
+                anticodon = line_data[4].strip("()") if len(line_data) > 4 else None
+            elif "tmRNA_" in rna_type:
+                # tmRNA does not have an anticodon
+                anticodon = None
+
+            gene = RNA(rna_id=locustag + {rna_type} + str(c).zfill(4))
+            # Extract RNA type (tRNA or tmRNA)
+
             gene.fill_annotations(
                 start=start,
                 stop=stop,
                 strand="-" if line_data[2].startswith("c") else "+",
-                gene_type="tRNA",
-                product=line_data[1] + line_data[4],
+                gene_type= rna_type,
+                product=rna_fam,
             )
+            # Store anticodon for tRNA genes (not for tmRNA)
+            if anticodon:
+                gene.anticodon = anticodon
+
+            # Store RNA family classification (needed for clustering)
+            gene.family = rna_fam  # Assign tRNA/tmRNA
+
             gene_objs[contig_name].add(gene)
     return gene_objs
 
+"""
+
+def launch_trnascan_se(
+        fna_file: str,
+        tmpdir: str,
+        org: Organism,
+        contig_to_length: Dict[str, int],
+        kingdom: str = "bacteria"
+) -> defaultdict:
+    """
+    Launches tRNAscan-SE to annotate tRNAs, replacing Aragorn.
+    Now supports both bacteria & archaea by choosing the correct tRNAscan-SE mode.
+
+    :param fna_file: Path to the uncompressed FASTA.
+    :param tmpdir: Path to temporary directory.
+    :param org: Organism being annotated.
+    :param contig_to_length: Dict mapping contig_name -> contig_length.
+    :param kingdom: "bacteria" or "archaea".
+    :return: A defaultdict(set) mapping contig_name -> set of RNA objects.
+    """
+    locustag = org.name
+
+    # Create a temporary file to generate a unique filename, then delete it so tRNAscan-SE can create it.
+    tmp_out = tempfile.NamedTemporaryFile(mode="w+", dir=tmpdir, delete=False, delete_on_close=True)
+    tmp_out_name = tmp_out.name
+    tmp_out.close()
+    os.unlink(tmp_out_name)  # Ensure the file does not exist
+
+    # choose the correct tRNAscan-SE flag based on kingdom.
+    model_flag = "-B" if kingdom == "bacteria" else ("-A" if kingdom == "archaea" else "-B")
+
+
+    # Build the command using the temporary filename.
+    cmd = ["tRNAscan-SE", model_flag, "-o", tmp_out_name, fna_file]
+    logging.debug(f"tRNAscan-SE command: {' '.join(cmd)}")
+    start_time = time.time()
+
+    try:
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+    except subprocess.TimeoutExpired as err:
+        logging.error("tRNAscan-SE timed out.")
+        raise Exception("tRNAscan-SE timed out.") from err
+    except subprocess.CalledProcessError as err:
+        logging.error(f"tRNAscan-SE failed with error: {err.stderr.decode()}")
+        raise Exception("tRNAscan-SE did not run successfully.") from err
+
+    elapsed_time = time.time() - start_time
+    print(f"tRNAscan-SE finished in {elapsed_time:.2f} seconds with return code {result.returncode}.")
+
+    stderr_text = result.stderr.decode().strip()
+    logging.debug("tRNAscan-SE STDERR: " + stderr_text)
+    if result.returncode != 0:
+        raise Exception("tRNAscan-SE did not run successfully.")
+    if stderr_text.startswith("Error:"):
+        raise Exception(f"tRNAscan-SE failed with error: {stderr_text}")
+
+    # Check the temporary file size to ensure output was produced.
+    try:
+        file_size = os.stat(tmp_out_name).st_size
+    except FileNotFoundError:
+        logging.error("Temporary output file not found; tRNAscan-SE produced no output.")
+        raise Exception("Temporary output file not found; tRNAscan-SE produced no output.")
+    logging.debug(f"Temporary output file size: {file_size} bytes")
+    if file_size == 0:
+        logging.error("Temporary output file is empty; tRNAscan-SE produced no output.")
+        raise Exception("Temporary output file is empty; tRNAscan-SE produced no output.")
+
+    rna_objs = defaultdict(set)
+    c = 0
+
+    with open(tmp_out_name, "r") as infile:
+        for line in infile:
+            # Skip header lines, status messages, and blank lines.
+            if (line.startswith("Sequence") or line.startswith("Name") or
+                    line.startswith("--------") or line.startswith("Status:") or not line.strip()):
+                continue
+
+            line_data = line.split()
+            if len(line_data) < 5:
+                logging.warning(f"Line malformed or too short: {line.strip()}")
+                continue
+
+            contig_name_line = line_data[0]
+            try:
+                start_coord = int(line_data[2])
+                end_coord = int(line_data[3])
+            except ValueError:
+                logging.warning(f"Could not parse coords: {line.strip()}")
+                continue
+
+            if contig_name_line not in contig_to_length:
+                logging.warning(f"Contig '{contig_name_line}' not recognized. Skipping line: {line.strip()}")
+                continue
+            if start_coord < 1 or end_coord < 1:
+                logging.warning(f"Negative coords in line: {line.strip()}")
+                continue
+            if max(start_coord, end_coord) > contig_to_length[contig_name_line]:
+                logging.warning(f"Coords exceed contig length for '{contig_name_line}' in line: {line.strip()}")
+                continue
+
+            c += 1
+            rna_id = f"{locustag}_tRNA_{str(c).zfill(4)}"
+            rna_type = line_data[4]
+            rna_anticodon = line_data[5] if len(line_data) > 5 else "?"
+            strand = "+"
+            if end_coord < start_coord:
+                strand = "-"
+                start_coord, end_coord = end_coord, start_coord
+
+            rna = RNA(rna_id=rna_id)
+            rna.fill_annotations(
+                start=start_coord,
+                stop=end_coord,
+                strand=strand,
+                gene_type="tRNA",
+                product=rna_type,
+            )
+            #rna.anticodon = rna_anticodon
+            #rna.family = rna_type
+            rna_objs[contig_name_line].add(rna)
+
+            #print(f"Added tRNA: {rna_id} to contig: {contig_name_line}, coords: {start_coord}..{end_coord}, type: {rna_type}")
+    try:
+        os.remove(tmp_out_name)
+    except OSError as e:
+        logging.warning(f"Could not remove temporary file {tmp_out_name}: {e}")
+
+    return rna_objs
 
 def launch_prodigal(
     contig_sequences: Dict[str, str],
@@ -224,6 +375,10 @@ def launch_infernal(
         if not line.startswith("#"):
             c += 1
             line_data = line.split()
+            rna_type_raw = line_data[0]  # RNA Type
+            contig_name = line_data[2]  # Contig ID
+            #rna_Rfamily = line_data[1]  # Rfam family ID # RF00001
+            #rna_description = " ".join(line_data[18:])  # RNA Description
             strand = line_data[9]
             start, stop = map(
                 int,
@@ -233,15 +388,36 @@ def launch_infernal(
                     else (line_data[7], line_data[8])
                 ),
             )
+
+            # RNA Type Classification
+            if "LSU_rRNA" in rna_type_raw:
+                rna_type = "LSU rRNA"
+            elif "SSU_rRNA" in rna_type_raw:
+                rna_type = "SSU rRNA"
+            elif "5S_rRNA" in rna_type_raw:
+                rna_type = "5S rRNA"
+            elif "rRNA" in rna_type_raw:
+                rna_type = "rRNA"  # Generic rRNA
+            elif "sRNA" in rna_type_raw:
+                rna_type = "sRNA"
+            else:
+                rna_type = "ncRNA"  # Default if no match
+
             gene = RNA(rna_id=locustag + "_rRNA_" + str(c).zfill(4))
             gene.fill_annotations(
                 start=start,
                 stop=stop,
                 strand=strand,
-                gene_type="rRNA",
-                product=" ".join(line_data[17:]),
+                gene_type=rna_type,
+                product=rna_type_raw,
             )
+            gene.family = rna_type_raw,
             gene_objs[line_data[2]].add(gene)
+
+            # for debugging
+            print(
+                f"Contig: {contig_name}, Start: {start}, Stop: {stop}, Strand: {strand},Type: {rna_type}, Product: {rna_type_raw}, family: {gene.family}"
+            )
     return gene_objs
 
 
@@ -403,11 +579,16 @@ def syntaxic_annotation(
             contig_name: len(contig_seq)
             for contig_name, contig_seq in contig_sequences.items()
         }
-
+        for contig_name, genes_from_contig in launch_trnascan_se(
+            fna_file=fasta_file.name, tmpdir=tmpdir, org=org, contig_to_length=contig_to_length, kingdom=kingdom
+        ).items():
+            genes[contig_name].extend(genes_from_contig)
+        """
         for contig_name, genes_from_contig in launch_aragorn(
             fna_file=fasta_file.name, org=org, contig_to_length=contig_to_length
         ).items():
             genes[contig_name].extend(genes_from_contig)
+        """
         for contig_name, genes_from_contig in launch_infernal(
             fna_file=fasta_file.name, org=org, kingdom=kingdom, tmpdir=tmpdir
         ).items():
@@ -854,7 +1035,7 @@ def annotate_organism(
     org = process_contigs(org, genes, contig_sequences, circular_contigs)
 
     #print_intergenic_sequences(org,"GCF_000092665.1_ASM9266v1_genomic")
-    print_genes_sequences(org,"GCF_000092665.1_ASM9266v1_genomic")
+    #print_genes_sequences(org,"GCF_000092665.1_ASM9266v1_genomic")
 
     return org
 
@@ -870,11 +1051,11 @@ def print_intergenic_sequences(organism: Organism, target_organism: Optional[str
 
         # Check if contig has intergenic sequences
         if not hasattr(contig, "intergenics"):
-            print(f" ❌ DEBUG: Contig `{contig.name}` has no `intergenics` attribute.")
+            print(f" DEBUG: Contig `{contig.name}` has no `intergenics` attribute.")
             continue
 
         if not contig.intergenics:
-            print("   ❌ No intergenic regions found in this contig.")
+            print("  No intergenic regions found in this contig.")
             continue
 
         # Print intergenic details
