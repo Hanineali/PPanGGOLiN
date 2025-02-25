@@ -12,6 +12,7 @@ import tables
 from ppanggolin.genome import Organism, Contig, Gene, Intergenic
 from ppanggolin.region import Region, Spot, Module
 from ppanggolin.geneFamily import GeneFamily
+from ppanggolin.rnaFamily import rnaFamily
 from ppanggolin.edge import Edge
 from ppanggolin.metadata import Metadata
 
@@ -38,12 +39,16 @@ class Pangenome:
         self._region_getter = {}
         self._spot_getter = {}
         self._module_getter = {}
+        self._rnaFam_getter = {}
+        self._max_rnaFam_id = 0
         self.status = {
             "genomesAnnotated": "No",
             "geneSequences": "No",
             "genesClustered": "No",
             "defragmented": "No",
             "geneFamilySequences": "No",
+            #"rnaClustered": "No",
+            #"rnaFamilySequences": "No",
             "neighborsGraph": "No",
             "partitioned": "No",
             "predictedRGP": "No",
@@ -952,3 +957,62 @@ class Pangenome:
         for elem in self.select_elem(metatype):
             if elem.has_source(source):
                 yield elem
+
+    @property
+    def rna_families(self) -> Generator[rnaFamily, None, None]:
+        """
+        Returns all the RNA families in the pangenome.
+        """
+        yield from self._rnaFam_getter.values()
+
+    @property
+    def number_of_rna_families(self) -> int:
+        """
+        Returns the number of RNA families present in the pangenome.
+        """
+        return len(self._rnaFam_getter)
+
+    @property
+    def max_rnaFam_id(self) -> int:
+        """
+        Get the last used RNA family identifier.
+        """
+        return self._max_rnaFam_id
+
+    @max_rnaFam_id.setter
+    def max_rnaFam_id(self, value: int):
+        """
+        Set the last used RNA family identifier.
+        """
+        self._max_rnaFam_id = value
+
+    def get_rna_family(self, family_name: str) -> rnaFamily:
+        """
+        Return the RNA family that has the given `family_name`.
+        Raises KeyError if not found.
+        """
+        if not isinstance(family_name, str):
+            raise AssertionError("RNA family name should be a string")
+        try:
+            fam = self._rnaFam_getter[family_name]
+        except KeyError:
+            raise KeyError(f"RNA family with name={family_name} not in pangenome.")
+        else:
+            return fam
+
+    def add_rna_family(self, rna_fam: rnaFamily):
+        """
+        Adds the given RNA family to the pangenome. If a family with the same name already exists, raises KeyError.
+        """
+        if not isinstance(rna_fam, rnaFamily):
+            raise AssertionError("Expected an RNAFamily object.")
+        try:
+            self.get_rna_family(rna_fam.name)
+        except KeyError:
+            # Family does not exist, so add it
+            self._rnaFam_getter[rna_fam.name] = rna_fam
+            self.max_rnaFam_id += 1
+        else:
+            raise KeyError(
+                f"Cannot add RNA family {rna_fam.name}: a family with the same name already exists."
+            )
