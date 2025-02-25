@@ -68,6 +68,28 @@ def check_annotate_args(args: argparse.Namespace):
     if hasattr(args, "anno") and args.anno is not None:
         check_input_files(args.anno, True)
 
+# function added to normalize the string of the product
+def normalize_product(product:str, org:Organism):
+    """
+      Normalizes the product string:
+        - Replaces non-ASCII characters with underscores (after logging a warning).
+        - Replaces hyphens with underscores.
+        - Strips leading/trailing whitespace.
+
+      :param product: The original product string.
+      :param org: Organism object, used for logging.
+      :return: The normalized product string.
+      """
+    if has_non_ascii(product):
+        logging.getLogger("PPanGGOLiN").warning(
+            f"In genome '{org.name}', the 'product' field of the gene contains non-ASCII characters: '{product}'. "
+            "These characters cannot be stored in the HDF5 file and will be replaced by underscores."
+        )
+        product = replace_non_ascii(product)
+    if "-" in product:
+        product = product.replace("-", "_")
+
+    return product
 
 def create_gene(
     org: Organism,
@@ -103,14 +125,15 @@ def create_gene(
     :param genetic_code: Genetic code used
     :param protein_id: Protein identifier
     """
-    # check for non ascii character in product field
-    if has_non_ascii(product):
-
+    # If product is missing or empty, log a warning and fallback
+    if not product or product.strip() == "":
         logging.getLogger("PPanGGOLiN").warning(
-            f"In genome '{org.name}', the 'product' field of gene '{gene_id}' contains non-ASCII characters: '{product}'. "
-            "These characters cannot be stored in the HDF5 file and will be replaced by underscores."
+            f"In genome '{org.name}', gene/rna '{gene_id}' has an empty '/product' field. Setting to 'unknown_product'."
         )
-        product = replace_non_ascii(product)
+        product = "unknown_product"
+
+    # check for non ascii character in product field and normalise the string
+    product = normalize_product(product,org)
 
     start, stop = coordinates[0][0], coordinates[-1][1]
 
@@ -158,7 +181,7 @@ def create_gene(
             coordinates=coordinates,
             gene_type=gene_type,
             name=gene_name,
-            product=product,
+            product=product.replace(" ", "_") #"16S_ribosomal_RNA"
         )
         contig.add_rna(new_gene)
     new_gene.fill_parents(org, contig)
@@ -755,7 +778,8 @@ def read_org_gbff(
                     else:
                         contig_to_metadata[contig].update(db_xref_for_metadata)
             genetic_code = ""
-            if feature["feature_type"] not in ["CDS", "rRNA", "tRNA"]:
+            # taking into consideration all the types of RNA available in a gbff file
+            if feature["feature_type"] not in ["CDS", "rRNA", "tRNA", "tmRNA", "ncRNA", "misc_RNA"]:
                 continue
             coordinates, is_complement, has_partial_start, has_partial_end = (
                 extract_positions("".join(feature["location"]))
@@ -1064,7 +1088,8 @@ def read_org_gff(
                             # let's keep the circularity info in the circular_contigs list
                             circular_contigs.append(contig_name)
 
-                elif fields_gff[gff_type] == "CDS" or "RNA" in fields_gff[gff_type]:
+                # All RNA types in gff file were added to be included
+                elif fields_gff[gff_type] == "CDS" or fields_gff[gff_type] in ["rRNA", "tRNA", "tmRNA", "nc_RNA", "misc_RNA"]:
 
                     id_attribute = get_id_attribute(attributes)
                     locus_tag = attributes.get("LOCUS_TAG")
@@ -1180,9 +1205,22 @@ def read_org_gff(
                         gene_counter += 1
                         contig.add(gene)
 
-                    elif "RNA" in fields_gff[gff_type]:
+                    # include all RNA types
+                    elif fields_gff[gff_type] in ["rRNA", "tRNA", "tmRNA", "misc_RNA", "nc_RNA"]:
 
                         rna_type = fields_gff[gff_type]
+                        if not product.strip():
+                            logging.getLogger("PPanGGOLiN").warning(
+                                f"In genome '{organism}', rna '{fields_gff[gff_type]}' in GFF has empty '/product'. Using 'unknown_product'."
+                            )
+                            product = "unknown_product"
+                        if rna_type == "tmRNA":
+                            product = "transfer_messenger_RNA"
+                        elif rna_type == "tRNA" and len(product)>8:
+                            product = product[:8]
+
+                        product = normalize_product(product,org)
+
                         rna = RNA(
                             org.name + f"_{rna_type}_" + str(rna_counter).zfill(4)
                         )
@@ -1193,12 +1231,13 @@ def read_org_gff(
                             strand=fields_gff[gff_strand],
                             gene_type=fields_gff[gff_type],
                             name=name,
-                            product=product,
+                            product=product.replace(" ", "_"),
                             local_identifier=gene_id,
                         )
                         rna.fill_parents(org, contig)
                         rna_counter += 1
                         contig.add_rna(rna)
+
 
     # Fix partial genes coordinates
     for contig in org.contigs:
@@ -1225,8 +1264,6 @@ def read_org_gff(
                 list(contig.genes) + list(contig.RNAs), key=lambda x: x.start
             )
             process_genes_and_intergenics_gff_gbff(contig, all_features, contig_sequences[contig.name], org)
-
-
 
     # add metadata to genome and contigs
     if contig_name_to_region_info:
