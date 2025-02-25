@@ -139,6 +139,26 @@ class Intergenicdata:
                 tuple(self.coordinates)
             )
         )
+# this class is created to avoid using global variables that could have side effects in a multi-threadigng environment
+class AnnotationWriter:
+    def __init__(self):
+        self.genedata_counter = 0
+        self.intergenicdata_counter = 0
+        self.genedata2gene = {}
+        self.genedata2rna = {}
+        self.intergenic_data_map = {}
+
+    def get_next_genedata_id(self, genedata, mapping: dict) -> int:
+        if genedata not in mapping:
+            mapping[genedata] = self.genedata_counter
+            self.genedata_counter += 1
+        return mapping[genedata]
+
+    def get_next_intergenicdata_id(self, intergenicdata, mapping: dict) -> int:
+        if intergenicdata not in mapping:
+            mapping[intergenicdata] = self.intergenicdata_counter
+            self.intergenicdata_counter += 1
+        return mapping[intergenicdata]
 
 
 def get_number_of_organisms(pangenome: Pangenome) -> int:
@@ -413,14 +433,49 @@ def write_gene_sequences_from_pangenome_file(
             ):
                 # Read the table chunk per chunk otherwise RAM dies on big pangenomes
                 name_cds = row["gene"].decode()
-                if row["type"] == b"CDS" and (list_cds is None or name_cds in list_cds):
+                # a mistakenly "b" next to CDS is removed
+                if row["type"] == "CDS" and (list_cds is None or name_cds in list_cds):
                     file_obj.write(">" + add + name_cds + "\n")
                     file_obj.write(seqid2seq[row["seqid"]] + "\n")
     logging.getLogger("PPanGGOLiN").debug(
         "Gene sequences from pangenome file was written to "
         f"{output.absolute()}{'.gz' if compress else ''}"
     )
-
+# reading each rna sequence and create fasta for each family group for MSA with Mafft
+def write_rna_sequences_from_pangenome_file(
+        pangenome_filename: str,
+        output: Path,
+        list_rnas: Optional[Iterator] = None,
+        add: str = "",
+        compress: bool = False,
+        disable_bar: bool = False,
+):
+    logging.getLogger("PPanGGOLiN").info(
+        f"Extracting and writing RNA sequences from a {pangenome_filename} "
+        "file to a fasta file..."
+    )
+    with tables.open_file(pangenome_filename, "r", driver_core_backing_store=0) as h5f:
+        table = h5f.root.annotations.rnaSequences
+        list_rnas = set(list_rnas) if list_rnas is not None else None
+        seqid2seq = read_sequences(h5f)
+        with write_compressed_or_not(output, compress) as file_obj:
+            for row in tqdm(
+                    read_chunks(table, chunk=20000),
+                    total=table.nrows,
+                    unit="rna",
+                    disable=disable_bar,
+            ):
+                # Read the table chunk per chunk otherwise RAM dies on big pangenomes
+                name_rnas = row["rna"].decode()
+                prod_rna = row["product"].decode()
+                rna_list_type = ["trna", "tmRNA","rRNA","ncRNA","misc_RNA"]
+                if row["type"] in rna_list_type and (list_rnas is None or name_rnas in list_rnas):
+                    file_obj.write(">" + prod_rna + "|" + add + name_rnas + "\n")
+                    file_obj.write(seqid2seq[row["seqid"]] + "\n")
+    logging.getLogger("PPanGGOLiN").debug(
+        "RNAs sequences from pangenome file was written to "
+        f"{output.absolute()}{'.gz' if compress else ''}"
+    )
 
 def read_rgp_genes_from_pangenome_file(h5f: tables.File) -> Set[bytes]:
     """
