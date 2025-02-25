@@ -61,18 +61,17 @@ def reverse_complement(seq: str):
         rcseq += complement[i]
     return rcseq
 
-"""
 def launch_aragorn(
     fna_file: str, org: Organism, contig_to_length: Dict[str, int]
 ) -> defaultdict:
-    "
+    """
     Launches Aragorn to annotate tRNAs.
 
     :param fna_file: file-like object containing the uncompressed fasta sequences
     :param org: Organism which will be annotated
 
     :return: Annotated genes in a list of gene objects
-    "
+    """
     locustag = org.name
     cmd = ["aragorn", "-t", "-gcbact", "-m", "-l", "-w", fna_file]
     logging.getLogger("PPanGGOLiN").debug(f"aragorn command : {' '.join(cmd)}")
@@ -82,6 +81,8 @@ def launch_aragorn(
     gene_objs = defaultdict(set)
     c = 0
     contig_name = ""
+    rna_fam = ""
+    rna_type = ""
     while len(file_data) != 0:
         line = file_data.pop()
         if line.startswith(">"):
@@ -108,19 +109,19 @@ def launch_aragorn(
                 continue
 
             c += 1
-            # Extract RNA type (tRNA or tmRNA) and replace "-" with "_"
-            rna_fam = line_data[1].replace("-","_")
-            rna_type = rna_fam.split("_")[0]
-            anticodon = None
 
-            if "tRNA_" in rna_type:
-                # Extract anticodon (last column, inside parentheses)
+            # Extract RNA type (tRNA or tmRNA) and replace "-" with "_", rna_fam and anticodon
+            if "tRNA" in line_data[1]:
+                rna_fam = line_data[1].replace("-","_")
+                rna_type = rna_fam.split("_")[0]
                 anticodon = line_data[4].strip("()") if len(line_data) > 4 else None
-            elif "tmRNA_" in rna_type:
-                # tmRNA does not have an anticodon
+            elif "tmRNA" in line_data[1]:
+                rna_type = line_data[1]
+                rna_fam= "transfer_messenger_RNA"
                 anticodon = None
 
-            gene = RNA(rna_id=locustag + {rna_type} + str(c).zfill(4))
+
+            gene = RNA(rna_id=locustag + "_" + rna_type + "_" + str(c).zfill(4))
             # Extract RNA type (tRNA or tmRNA)
 
             gene.fill_annotations(
@@ -131,16 +132,10 @@ def launch_aragorn(
                 product=rna_fam,
             )
             # Store anticodon for tRNA genes (not for tmRNA)
-            if anticodon:
-                gene.anticodon = anticodon
-
-            # Store RNA family classification (needed for clustering)
-            gene.family = rna_fam  # Assign tRNA/tmRNA
+            gene.anticodon = anticodon
 
             gene_objs[contig_name].add(gene)
     return gene_objs
-
-"""
 
 def launch_trnascan_se(
         fna_file: str,
@@ -257,8 +252,8 @@ def launch_trnascan_se(
                 gene_type="tRNA",
                 product=rna_type,
             )
-            #rna.anticodon = rna_anticodon
-            #rna.family = rna_type
+            rna.anticodon = rna_anticodon
+            rna.family = rna_type
             rna_objs[contig_name_line].add(rna)
 
             #print(f"Added tRNA: {rna_id} to contig: {contig_name_line}, coords: {start_coord}..{end_coord}, type: {rna_type}")
@@ -315,7 +310,6 @@ def launch_prodigal(
             gene_counter += 1
             gene_objs[contig_name].add(gene)
     return gene_objs
-
 
 def launch_infernal(
     fna_file: str, org: Organism, tmpdir: str, kingdom: str = "bacteria"
@@ -377,7 +371,6 @@ def launch_infernal(
             line_data = line.split()
             rna_type_raw = line_data[0]  # RNA Type
             contig_name = line_data[2]  # Contig ID
-            #rna_Rfamily = line_data[1]  # Rfam family ID # RF00001
             #rna_description = " ".join(line_data[18:])  # RNA Description
             strand = line_data[9]
             start, stop = map(
@@ -389,37 +382,17 @@ def launch_infernal(
                 ),
             )
 
-            # RNA Type Classification
-            if "LSU_rRNA" in rna_type_raw:
-                rna_type = "LSU rRNA"
-            elif "SSU_rRNA" in rna_type_raw:
-                rna_type = "SSU rRNA"
-            elif "5S_rRNA" in rna_type_raw:
-                rna_type = "5S rRNA"
-            elif "rRNA" in rna_type_raw:
-                rna_type = "rRNA"  # Generic rRNA
-            elif "sRNA" in rna_type_raw:
-                rna_type = "sRNA"
-            else:
-                rna_type = "ncRNA"  # Default if no match
-
             gene = RNA(rna_id=locustag + "_rRNA_" + str(c).zfill(4))
             gene.fill_annotations(
                 start=start,
                 stop=stop,
                 strand=strand,
-                gene_type=rna_type,
+                gene_type="rRNA",
                 product=rna_type_raw,
             )
-            gene.family = rna_type_raw,
-            gene_objs[line_data[2]].add(gene)
+            gene_objs[contig_name].add(gene)
 
-            # for debugging
-            print(
-                f"Contig: {contig_name}, Start: {start}, Stop: {stop}, Strand: {strand},Type: {rna_type}, Product: {rna_type_raw}, family: {gene.family}"
-            )
     return gene_objs
-
 
 def check_sequence_tuple(name: str, sequence: str):
     """
@@ -579,6 +552,7 @@ def syntaxic_annotation(
             contig_name: len(contig_seq)
             for contig_name, contig_seq in contig_sequences.items()
         }
+        """
         for contig_name, genes_from_contig in launch_trnascan_se(
             fna_file=fasta_file.name, tmpdir=tmpdir, org=org, contig_to_length=contig_to_length, kingdom=kingdom
         ).items():
@@ -588,7 +562,6 @@ def syntaxic_annotation(
             fna_file=fasta_file.name, org=org, contig_to_length=contig_to_length
         ).items():
             genes[contig_name].extend(genes_from_contig)
-        """
         for contig_name, genes_from_contig in launch_infernal(
             fna_file=fasta_file.name, org=org, kingdom=kingdom, tmpdir=tmpdir
         ).items():
