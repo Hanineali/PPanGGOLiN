@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+    #!/usr/bin/env python3
 
 from __future__ import annotations
 import logging
@@ -296,6 +296,30 @@ class RNA(Feature):
 
     def __init__(self, rna_id: str):
         super().__init__(rna_id)
+
+        self.anticodon = None
+        self._family = None
+
+    @property
+    def family(self):
+        """Return RNAFamily that this RNA belongs to.
+
+        :return: RNA family of the RNA
+        :rtype: RNAFamily
+        """
+        return self._family
+
+    @family.setter
+    def family(self, family):
+        """Set the RNAFamily belonging to the RNA.
+
+        :param family: RNA family linked to the RNA
+        """
+        from ppanggolin.rnaFamily import rnaFamily  # Import the correct class
+
+        if not isinstance(family, rnaFamily):
+            raise TypeError(f"Expected type RNAFamily, got {type(family)}")
+        self._family = family
 
 
 class Gene(Feature):
@@ -1355,7 +1379,6 @@ class Intergenic(Feature):
         :return: A set of neighboring gene IDs (source, target).
         """
         return (self.source, self.target)
-
 
 
 
