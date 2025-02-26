@@ -3,7 +3,7 @@
 # default libraries
 import logging
 from pathlib import Path
-from typing import Dict, Any, Iterator, Set, List, Tuple, Optional
+from typing import Dict, Any, Iterator, Set, List, Tuple, Optional, Iterable
 from collections import defaultdict
 
 # installed libraries
@@ -433,49 +433,77 @@ def write_gene_sequences_from_pangenome_file(
             ):
                 # Read the table chunk per chunk otherwise RAM dies on big pangenomes
                 name_cds = row["gene"].decode()
-                # a mistakenly "b" next to CDS is removed
-                if row["type"] == "CDS" and (list_cds is None or name_cds in list_cds):
+                if row["type"] == b"CDS" and (list_cds is None or name_cds in list_cds):
                     file_obj.write(">" + add + name_cds + "\n")
                     file_obj.write(seqid2seq[row["seqid"]] + "\n")
     logging.getLogger("PPanGGOLiN").debug(
         "Gene sequences from pangenome file was written to "
         f"{output.absolute()}{'.gz' if compress else ''}"
     )
-# reading each rna sequence and create fasta for each family group for MSA with Mafft
+# reading each rna sequence from pangenome file
 def write_rna_sequences_from_pangenome_file(
         pangenome_filename: str,
         output: Path,
-        list_rnas: Optional[Iterator] = None,
-        add: str = "",
+        list_rnas: Optional[Iterable] = None,
         compress: bool = False,
         disable_bar: bool = False,
 ):
     logging.getLogger("PPanGGOLiN").info(
-        f"Extracting and writing RNA sequences from a {pangenome_filename} "
-        "file to a fasta file..."
+        f"Extracting and writing RNA sequences from {pangenome_filename} to {output}..."
     )
+
     with tables.open_file(pangenome_filename, "r", driver_core_backing_store=0) as h5f:
+        if "/annotations/rnaSequences" not in h5f:
+            print("ERROR: rnaSequences dataset is missing in the pangenome file!")
+            return
+
         table = h5f.root.annotations.rnaSequences
-        list_rnas = set(list_rnas) if list_rnas is not None else None
+        list_rnas = list_rnas if list_rnas else None
         seqid2seq = read_sequences(h5f)
+
         with write_compressed_or_not(output, compress) as file_obj:
+            count = 0
             for row in tqdm(
                     read_chunks(table, chunk=20000),
                     total=table.nrows,
                     unit="rna",
                     disable=disable_bar,
             ):
-                # Read the table chunk per chunk otherwise RAM dies on big pangenomes
                 name_rnas = row["rna"].decode()
-                prod_rna = row["product"].decode()
-                rna_list_type = ["trna", "tmRNA","rRNA","ncRNA","misc_RNA"]
+                rna_list_type = [b"tRNA", b"tmRNA", b"rRNA", b"ncRNA", b"misc_RNA"]  # Ensure correct format
                 if row["type"] in rna_list_type and (list_rnas is None or name_rnas in list_rnas):
-                    file_obj.write(">" + prod_rna + "|" + add + name_rnas + "\n")
+                    file_obj.write(">" + name_rnas + "\n")
                     file_obj.write(seqid2seq[row["seqid"]] + "\n")
+                    count += 1
+
+        print(f"FASTA file created with {count} RNA sequences")
+
     logging.getLogger("PPanGGOLiN").debug(
-        "RNAs sequences from pangenome file was written to "
+        "RNA sequences from pangenome file were written to "
         f"{output.absolute()}{'.gz' if compress else ''}"
     )
+
+def write_rna_product_from_pangenome_file(
+        pangenome_filename: str,
+        disable_bar: bool = False,
+):
+    fam2rnas = defaultdict(list)
+    with tables.open_file(pangenome_filename, "r") as h5f:
+        table = h5f.root.annotations.rnaSequences
+        for row in tqdm(
+                read_chunks(table, chunk=20000),
+                total=table.nrows,
+                unit="rna",
+                disable=disable_bar,
+        ):
+            name_rnas = row["rna"].decode()
+            rna_fam = row["product"].decode()
+            rna_list_type = [b"tRNA", b"tmRNA", b"rRNA", b"ncRNA", b"misc_RNA"]  # Format correct
+            if row["type"] in rna_list_type:
+                fam2rnas[rna_fam].append(name_rnas)
+    return fam2rnas
+
+
 
 def read_rgp_genes_from_pangenome_file(h5f: tables.File) -> Set[bytes]:
     """
