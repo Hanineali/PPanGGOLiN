@@ -6,7 +6,7 @@ import tempfile
 from collections import defaultdict
 import os
 import argparse
-from typing import Tuple, Dict, Set
+from typing import Tuple, Dict, Set, List
 from pathlib import Path
 import time
 import gzip
@@ -20,6 +20,7 @@ import pandas as pd
 from ppanggolin.pangenome import Pangenome
 from ppanggolin.genome import Gene
 from ppanggolin.geneFamily import GeneFamily
+from ppanggolin.rnaFamily import rnaFamily
 from ppanggolin.utils import (
     is_compressed,
     restricted_float,
@@ -30,11 +31,14 @@ from ppanggolin.formats.writeBinaries import write_pangenome, erase_pangenome
 from ppanggolin.formats.readBinaries import (
     check_pangenome_info,
     write_gene_sequences_from_pangenome_file,
+    write_rna_sequences_from_pangenome_file
 )
 from ppanggolin.formats.writeSequences import (
     write_gene_sequences_from_annotations,
     translate_genes,
     create_mmseqs_db,
+    write_rna_sequences_from_annotations,
+    rna_fam_clustering
 )
 
 
@@ -53,7 +57,6 @@ def check_pangenome_former_clustering(pangenome: Pangenome, force: bool = False)
         )
     elif pangenome.status["genesClustered"] == "inFile" and force:
         erase_pangenome(pangenome, gene_families=True)
-
 
 # Clustering functions
 def check_pangenome_for_clustering(
@@ -101,6 +104,48 @@ def check_pangenome_for_clustering(
             "(having the fasta in the gff files, or providing the fasta files through the --fasta option)"
         )
 
+def check_pangenome_for_rna_clustering(
+    pangenome: Pangenome,
+    sequences: Path,
+    force: bool = False,
+    disable_bar: bool = False,
+):
+    """
+    Check the pangenome statuses and write RNA gene sequences in the provided tmpFile.
+    (whether they are written in the .h5 file or currently in memory)
+
+    :param pangenome: Annotated Pangenome object.
+    :param sequences: Path to write the RNA sequences.
+    :param force: Force writing on existing pangenome information.
+    :param disable_bar: Disable progress bar.
+    """
+    check_pangenome_former_clustering(pangenome, force)
+
+    if pangenome.status["rnaSequences"] in ["Computed", "Loaded"]:
+        logging.getLogger("PPanGGOLiN").debug(
+            "Writing RNA sequences from annotation loaded in pangenome."
+        )
+        write_rna_sequences_from_annotations(
+            pangenome.RNAs,
+            add="ppanggolin_rna_",
+            compress=False,
+            disable_bar=disable_bar,
+        )
+    elif pangenome.status["rnaSequences"] == "inFile":
+        logging.getLogger("PPanGGOLiN").debug("Writing RNA sequences from pangenome file.")
+        write_rna_sequences_from_pangenome_file(
+            pangenome.file,
+            sequences,
+            add="ppanggolin_rna_",
+            compress=False,
+            disable_bar=disable_bar,
+        )
+    else:
+        raise Exception(
+            "The pangenome does not include RNA gene sequences, making it impossible to cluster "
+            "RNA genes into families. Ensure that RNA sequences are included during the annotation step, "
+            "or provide RNA sequence data through the appropriate options."
+        )
 
 def first_clustering(
     sequences: Path,
@@ -466,6 +511,7 @@ def clustering(
     """
     date = time.strftime("_%Y-%m-%d_%H-%M-%S", time.localtime())
     dir_name = f"clustering_tmpdir_{date}_PID{os.getpid()}"
+    dir_name_rna = f"rna_clustering_tmpdir_{date}_PID{os.getpid()}"
     with create_tmpdir(tmpdir, basename=dir_name, keep_tmp=keep_tmp_files) as tmp_path:
         sequence_path = tmp_path / "nucleotide_sequences.fna"
         check_pangenome_for_clustering(
@@ -487,6 +533,8 @@ def clustering(
             aln = align_rep(rep, tmp_path, cpu, coverage, identity)
             genes2fam, fam2seq = refine_clustering(tsv, aln, fam2seq)
             pangenome.status["defragmented"] = "Computed"
+    with create_tmpdir(tmpdir, basename=dir_name_rna, keep_tmp=keep_tmp_files) as tmp_path_rna:
+        fam_rep_tsv = rna_fam_clustering(pangenome,tmp_path_rna)
     read_fam2seq(pangenome, fam2seq)
     read_gene2fam(pangenome, genes2fam, disable_bar=disable_bar)
 
