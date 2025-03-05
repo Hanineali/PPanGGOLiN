@@ -18,7 +18,7 @@ import pandas as pd
 
 # local libraries
 from ppanggolin.pangenome import Pangenome
-from ppanggolin.genome import Gene
+from ppanggolin.genome import Gene, RNA
 from ppanggolin.geneFamily import GeneFamily
 from ppanggolin.rnaFamily import rnaFamily
 from ppanggolin.utils import (
@@ -489,6 +489,65 @@ def read_gene2fam(pangenome: Pangenome, gene_to_fam: dict, disable_bar: bool = F
         gene_obj.is_fragment = is_frag
         fam.add(gene_obj)
 
+def read_rna_fam2seq(pangenome, rna_fam_to_seq: Dict[str, Tuple[str, str]]):
+    """
+        Add rna family to pangenome and sequences to rna families
+
+        :param pangenome: Annotated pangenome
+        :param rna_fam_to_seq: Dictionary which link families and sequences
+        """
+    logging.getLogger("PPanGGolin").info("Adding rna sequences to rna families")
+    for family, (rep_id, sequence) in rna_fam_to_seq.items():
+        fam = rnaFamily(pangenome.max_rnaFam_id, family)
+        fam.add_sequence(sequence)
+        # fam.representative = rep_id (should be an instance of RNA and not a string)
+        pangenome.add_rna_family(fam)
+
+def read_rnas2fam(pangenome, rna_to_fam:Dict[str, str]):
+    """
+        Add rna to pangenome families
+
+        :param pangenome: Annotated Pangenome
+        :param rna_to_fam: Dictionary which link rna id to families
+
+        """
+    logging.getLogger("PPanGGOLiN").info(
+        f"Adding {len(rna_to_fam)} rnas to the rna families"
+    )
+
+    link = (
+        True
+        if pangenome.status["genomesAnnotated"] in ["Computed", "Loaded"]
+        else False
+    )
+    if (
+            link and len(rna_to_fam) != pangenome.number_of_rnas
+    ):  # then maybe there are rnas with identical IDs
+        logging.getLogger("PPanGGOLiN").debug(
+            f"rna_to_fam size: {len(rna_to_fam)}, "
+            f"Pangenome nb rnas: {pangenome.number_of_rnas}"
+        )
+        raise Exception(
+            "Something unexpected happened during clustering (have less rnas clustered than rnas "
+            "in the pangenome). A probable reason is that two rnas in two different genomes have "
+            "the same IDs; If you are sure that all of your rnas have non identical IDs,  please post an "
+            "issue at https://github.com/labgem/PPanGGOLiN/"
+        )
+    for rna, family in tqdm(
+            rna_to_fam.items(), unit="rna", total=len(rna_to_fam)
+    ):
+        try:
+            fam = pangenome.get_rna_family(family)
+        except KeyError:  # Family not found so create and add
+            fam = rnaFamily(pangenome.max_rnaFam_id, family)
+            pangenome.add_rna_family(fam)
+        if link:  # doing the linking if the annotations are loaded.
+            rna_obj = pangenome.get_rna(rna)
+        else:
+            rna_obj = RNA(rna)
+        fam.add(rna_obj)
+
+
 def clustering(
     pangenome: Pangenome,
     tmpdir: Path,
@@ -551,6 +610,8 @@ def clustering(
 
     read_fam2seq(pangenome, fam2seq)
     read_gene2fam(pangenome, genes2fam, disable_bar=disable_bar)
+    read_rna_fam2seq(pangenome, rna_fam2seq)
+    read_rnas2fam(pangenome, rnas2fam)
 
     pangenome.status["genesClustered"] = "Computed"
     pangenome.status["geneFamilySequences"] = "Computed"
