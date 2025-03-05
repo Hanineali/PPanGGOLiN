@@ -89,6 +89,9 @@ def normalize_product(product:str, org:Organism):
     if "-" in product:
         product = product.replace("-", "_")
 
+    if "," in product:
+        product = product.split(",", 1)[0]
+
     return product
 
 def create_gene(
@@ -128,9 +131,8 @@ def create_gene(
     # If product is missing or empty, log a warning and fallback
     if not product or product.strip() == "":
         logging.getLogger("PPanGGOLiN").warning(
-            f"In genome '{org.name}', gene/rna '{gene_id}' has an empty '/product' field. Setting to 'unknown_product'."
+            f"In genome '{org.name}', gene/rna '{gene_id}' has an empty '/product' field."
         )
-        product = "unknown_product"
 
     # check for non ascii character in product field and normalise the string
     product = normalize_product(product,org)
@@ -779,8 +781,9 @@ def read_org_gbff(
                         contig_to_metadata[contig].update(db_xref_for_metadata)
             genetic_code = ""
             # taking into consideration all the types of RNA available in a gbff file
-            if feature["feature_type"] not in ["CDS", "rRNA", "tRNA", "tmRNA", "ncRNA", "misc_RNA"]:
+            if "RNA" not in feature["feature_type"] and feature["feature_type"] != "CDS":
                 continue
+
             coordinates, is_complement, has_partial_start, has_partial_end = (
                 extract_positions("".join(feature["location"]))
             )
@@ -1089,7 +1092,7 @@ def read_org_gff(
                             circular_contigs.append(contig_name)
 
                 # All RNA types in gff file were added to be included
-                elif fields_gff[gff_type] == "CDS" or fields_gff[gff_type] in ["rRNA", "tRNA", "tmRNA", "nc_RNA", "misc_RNA"]:
+                elif fields_gff[gff_type] == "CDS" or "RNA" in fields_gff[gff_type]:
 
                     id_attribute = get_id_attribute(attributes)
                     locus_tag = attributes.get("LOCUS_TAG")
@@ -1206,18 +1209,18 @@ def read_org_gff(
                         contig.add(gene)
 
                     # include all RNA types
-                    elif fields_gff[gff_type] in ["rRNA", "tRNA", "tmRNA", "misc_RNA", "nc_RNA"]:
+                    elif "RNA" in fields_gff[gff_type]:
 
                         rna_type = fields_gff[gff_type]
                         if not product.strip():
                             logging.getLogger("PPanGGOLiN").warning(
-                                f"In genome '{organism}', rna '{fields_gff[gff_type]}' in GFF has empty '/product'. Using 'unknown_product'."
+                                f"In genome '{organism}', rna '{fields_gff[gff_type]}' in GFF has empty '/product'"
                             )
-                            product = "unknown_product"
+                            continue
                         if rna_type == "tmRNA":
                             product = "transfer_messenger_RNA"
-                        elif rna_type == "tRNA" and len(product)>8:
-                            product = product[:8]
+                        elif rna_type == "tRNA" :
+                            product = re.sub(r'\(.*$', '', product)
 
                         product = normalize_product(product,org)
 
