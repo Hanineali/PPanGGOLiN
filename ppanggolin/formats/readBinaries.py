@@ -2,6 +2,7 @@
 
 # default libraries
 import logging
+import os
 from pathlib import Path
 from typing import Dict, Any, Iterator, Set, List, Tuple, Optional, Iterable
 from collections import defaultdict
@@ -485,25 +486,29 @@ def write_rna_sequences_from_pangenome_file(
 
 def write_rna_product_from_pangenome_file(
         pangenome_filename: str,
+        output: Path,
         disable_bar: bool = False,
 ):
+    # create the path to write the rna -> family file
+    rna2fam_tsv = os.path.join(output, "rna_to_fam.tsv")
+    #create the dictionnary fam2rnas
     fam2rnas = defaultdict(list)
-    with tables.open_file(pangenome_filename, "r") as h5f:
-        table = h5f.root.annotations.rnaSequences
-        for row in tqdm(
-                read_chunks(table, chunk=20000),
-                total=table.nrows,
-                unit="rna",
-                disable=disable_bar,
-        ):
-            name_rnas = row["rna"].decode()
-            rna_fam = row["product"].decode()
-            rna_list_type = [b"tRNA", b"tmRNA", b"rRNA", b"ncRNA", b"misc_RNA"]  # Format correct
-            if row["type"] in rna_list_type:
-                fam2rnas[rna_fam].append(name_rnas)
-    return fam2rnas
-
-
+    with open(rna2fam_tsv, "w") as out_tsv:
+        with tables.open_file(pangenome_filename, "r") as h5f:
+            table = h5f.root.annotations.rnaSequences
+            for row in tqdm(
+                    read_chunks(table, chunk=20000),
+                    total=table.nrows,
+                    unit="rna",
+                    disable=disable_bar,
+            ):
+                rna_id = row["rna"].decode()
+                rna_fam = row["product"].decode()
+                rna_list_type = [b"tRNA", b"tmRNA", b"rRNA", b"ncRNA", b"misc_RNA"]
+                if row["type"] in rna_list_type:
+                    fam2rnas[rna_fam].append(rna_id)
+                    out_tsv.write(f"{rna_id}\t{rna_fam}\n")
+    return fam2rnas, rna2fam_tsv
 
 def read_rgp_genes_from_pangenome_file(h5f: tables.File) -> Set[bytes]:
     """
@@ -986,6 +991,79 @@ def write_intergenic_sequences_from_file(
             h5f, outpath, compress, seq_id_to_intergenics, disable_bar=disable_bar
         )
 
+def write_rnas_sequences_from_file(
+        pangenome_filename: str,
+        output: Path,
+        compress: bool = False,
+        disable_bar: bool = False,
+):
+    """
+    Reads rna sequences from the `sequences` table in the HDF5 pangenome file
+    and writes them to a FASTA file.
+
+    :param pangenome_filename: Path to the pangenome HDF5 file.
+    :param output: Output directory for the rna sequences file.
+    :param compress: Boolean flag to compress output as .gz.
+    :param disable_bar: Boolean flag to disable progress bar.
+    """
+
+    outpath = output / "rnas_sequences.fna"
+
+    with tables.open_file(pangenome_filename, "r",driver_core_backing_store=0) as h5f:
+
+        if "/annotations/rnaSequences" not in h5f:
+            logging.getLogger("PPanGGOLiN").warning(
+                "No rnas sequences found in the pangenome file."
+            )
+            return
+
+        seq_id_to_rnas = get_seqid_to_rnas(
+            h5f, disable_bar=disable_bar
+        )
+
+        write_rnas_seq_from_pangenome_file(
+            h5f, outpath, compress, seq_id_to_rnas, disable_bar=disable_bar
+        )
+
+def write_rnas_seq_from_pangenome_file(
+    h5f: tables.File,
+    outpath: Path,
+    compress: bool,
+    seq_id_to_rnas: Dict[int, List[str]],
+    disable_bar: bool,
+):
+    """
+    Writes rnas sequences from the pangenome file to an output file.
+
+    Only sequences whose IDs match the ones in seq_id_to_rnas will be written.
+
+    :param h5f: The open HDF5 pangenome file containing sequence data.
+    :param outpath: The path to the output file where sequences will be written.
+    :param compress: Boolean flag to indicate whether output should be compressed.
+    :param seq_id_to_rnas: A dictionary mapping sequence IDs to lists of rnas IDs.
+    :param disable_bar: Boolean flag to disable the progress bar.
+    """
+
+    with write_compressed_or_not(file_path=outpath, compress=compress) as file_obj:
+
+        seq_table = h5f.root.annotations.sequences
+
+        with tqdm(
+            total=len(seq_id_to_rnas), unit="sequence", disable=disable_bar
+        ) as pbar:
+
+            for row in read_chunks(table=seq_table, chunk=20000):
+                seqid = row["seqid"]
+
+                if seqid in seq_id_to_rnas:
+                    dna_sequence = row["dna"].decode(errors="ignore")  # Decode safely
+
+                    for rna in seq_id_to_rnas[seqid]:
+                        file_obj.write(f">{rna}\n")
+                        file_obj.write(f"{dna_sequence}\n")
+
+                    pbar.update(1)
+
 
 def write_intergenics_seq_from_pangenome_file(
     h5f: tables.File,
@@ -1026,6 +1104,34 @@ def write_intergenics_seq_from_pangenome_file(
 
                     pbar.update(1)
 
+
+def get_seqid_to_rnas(
+    h5f: tables.File,
+    disable_bar: bool = False,
+) -> Dict[int, List[str]]:
+    """
+    Creates a mapping of sequence IDs to intergenics ID.
+
+    :param h5f: The open HDF5 pangenome file containing gene sequence data.
+    :param genes: A list of gene names to include in the mapping (if `get_all_genes` is False).
+    :param get_all_genes: Boolean flag to indicate if all genes should be included in the mapping.
+                          If set to True, all genes will be added regardless of the `genes` parameter.
+    :param disable_bar: Boolean flag to disable the progress bar if set to True.
+    :return: A dictionary mapping sequence IDs (integers) to lists of intergenics id (strings).
+    """
+
+    seq_id_to_rnas = defaultdict(list)
+    rnas_seq_table = h5f.root.annotations.rnaSequences
+
+    for row in tqdm(
+            read_chunks(rnas_seq_table, chunk=20000),
+            total=rnas_seq_table.nrows,
+            unit="rna",
+            disable=disable_bar,
+    ):
+        seq_id_to_rnas[row["seqid"]].append(row["rna"].decode(errors="ignore"))
+
+    return seq_id_to_rnas
 
 def get_seqid_to_intergenics(
     h5f: tables.File,
