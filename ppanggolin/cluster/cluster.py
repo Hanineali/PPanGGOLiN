@@ -104,49 +104,6 @@ def check_pangenome_for_clustering(
             "(having the fasta in the gff files, or providing the fasta files through the --fasta option)"
         )
 
-def check_pangenome_for_rna_clustering(
-    pangenome: Pangenome,
-    sequences: Path,
-    force: bool = False,
-    disable_bar: bool = False,
-):
-    """
-    Check the pangenome statuses and write RNA gene sequences in the provided tmpFile.
-    (whether they are written in the .h5 file or currently in memory)
-
-    :param pangenome: Annotated Pangenome object.
-    :param sequences: Path to write the RNA sequences.
-    :param force: Force writing on existing pangenome information.
-    :param disable_bar: Disable progress bar.
-    """
-    check_pangenome_former_clustering(pangenome, force)
-
-    if pangenome.status["rnaSequences"] in ["Computed", "Loaded"]:
-        logging.getLogger("PPanGGOLiN").debug(
-            "Writing RNA sequences from annotation loaded in pangenome."
-        )
-        write_rna_sequences_from_annotations(
-            pangenome.RNAs,
-            add="ppanggolin_rna_",
-            compress=False,
-            disable_bar=disable_bar,
-        )
-    elif pangenome.status["rnaSequences"] == "inFile":
-        logging.getLogger("PPanGGOLiN").debug("Writing RNA sequences from pangenome file.")
-        write_rna_sequences_from_pangenome_file(
-            pangenome.file,
-            sequences,
-            add="ppanggolin_rna_",
-            compress=False,
-            disable_bar=disable_bar,
-        )
-    else:
-        raise Exception(
-            "The pangenome does not include RNA gene sequences, making it impossible to cluster "
-            "RNA genes into families. Ensure that RNA sequences are included during the annotation step, "
-            "or provide RNA sequence data through the appropriate options."
-        )
-
 def first_clustering(
     sequences: Path,
     tmpdir: Path,
@@ -246,7 +203,6 @@ def first_clustering(
     )
     run_subprocess(cmd, msg="MMSeqs2 createtsv failed with the following error:\n")
     return reprfa, outtsv
-
 
 def read_faa(faa_file_name: Path) -> Dict[str, str]:
     """
@@ -357,6 +313,59 @@ def read_tsv(
             )  # fam id, and it's a gene (and not a fragment)
             fam2genes[line[0]].add(line[1])
     return genes2fam, fam2genes
+
+
+def parse_rep_fasta(fasta_file: str) -> Dict[str, Tuple[str, str]]:
+    """
+    Parse un fichier FASTA et retourne un dictionnaire où :
+    - la clé est le nom de la famille
+    - la valeur est un tuple (rep_id, rep_sequence)
+    """
+    fam2seq: Dict[str, Tuple[str, str]] = {}
+    current_family = None
+    current_id = None
+    current_seq = []
+
+    with open(fasta_file, "r") as infile:
+        for line in infile:
+            line = line.strip()
+            if not line:
+                continue
+
+            if line.startswith(">"):
+                if current_family is not None:
+                    fam2seq[current_family] = (current_id, "".join(current_seq))
+
+                header = line[1:]
+                parts = header.split("|", 1)
+                if len(parts) == 2:
+                    current_family, current_id = parts
+                else:
+                    current_family = parts[0]
+                    current_id = ""
+                current_seq = []
+
+            else:
+                current_seq.append(line)
+
+        if current_family is not None:
+            fam2seq[current_family] = (current_id, "".join(current_seq))
+
+    return fam2seq
+
+def parse_rna_tsv(tsv_file_name) -> Dict[str, str]:
+    """
+        Parses a TSV file to a dictionary:
+            {
+               rnaID: family,
+                ...
+            }
+    """
+    rna2fam = defaultdict()
+    with open(tsv_file_name, "r") as tsvfile:
+        for line in tsvfile:
+            rna2fam[line.split("\t")[0]] = line.split("\t")[1].strip()
+    return rna2fam
 
 
 def refine_clustering(
@@ -480,7 +489,6 @@ def read_gene2fam(pangenome: Pangenome, gene_to_fam: dict, disable_bar: bool = F
         gene_obj.is_fragment = is_frag
         fam.add(gene_obj)
 
-
 def clustering(
     pangenome: Pangenome,
     tmpdir: Path,
@@ -533,8 +541,14 @@ def clustering(
             aln = align_rep(rep, tmp_path, cpu, coverage, identity)
             genes2fam, fam2seq = refine_clustering(tsv, aln, fam2seq)
             pangenome.status["defragmented"] = "Computed"
+
     with create_tmpdir(tmpdir, basename=dir_name_rna, keep_tmp=keep_tmp_files) as tmp_path_rna:
-        fam_rep_tsv = rna_fam_clustering(pangenome,tmp_path_rna)
+        rna_fam_fasta,rna2fam_tsv = rna_fam_clustering(pangenome,tmp_path_rna)
+        rna_fam2seq = parse_rep_fasta(rna_fam_fasta)
+        rnas2fam = parse_rna_tsv(rna2fam_tsv)
+        #print(f"fam -> (rna,seq) {rna_fam2seq.items()}")
+        #print(f"rna -> fam {rnas2fam.items()}")
+
     read_fam2seq(pangenome, fam2seq)
     read_gene2fam(pangenome, genes2fam, disable_bar=disable_bar)
 
@@ -550,7 +564,6 @@ def clustering(
 
     pangenome.parameters["cluster"]["translation_table"] = code
     pangenome.parameters["cluster"]["# read_clustering_from_file"] = False
-
 
 # Read clustering
 def mk_local_to_gene(pangenome: Pangenome) -> dict:

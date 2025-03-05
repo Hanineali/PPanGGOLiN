@@ -38,7 +38,7 @@ from ppanggolin.formats.readBinaries import (
     write_fasta_prot_fam_from_pangenome_file,
     write_intergenic_sequences_from_file,
     write_rna_sequences_from_pangenome_file,
-    write_rna_product_from_pangenome_file
+    write_rna_product_from_pangenome_file,
 )
 
 module_regex = re.compile(r"^module_\d+")  # \d == [0-9]
@@ -99,7 +99,6 @@ def write_gene_sequences_from_annotations(
 def write_rna_sequences_from_annotations(
     rnas_to_write: Iterable[RNA],
     output: Path,
-    add: str = "",
     compress: bool = False,
     disable_bar: bool = False,
 ):
@@ -120,9 +119,8 @@ def write_rna_sequences_from_annotations(
     )
     with write_compressed_or_not(output, compress) as file_obj:
         for rna in tqdm(rnas_to_write, unit="rna", disable=disable_bar):
-            rna_type_list = ["tRNA", "tmRNA", "rRNA", "ncRNA", "misc_RNA"]
-            if rna.type in rna_type_list:
-                file_obj.write(f">{add}{rna.ID}\n")
+            if "RNA" in rna.type:
+                file_obj.write(f">{rna.product}|{rna.ID}\n")
                 file_obj.write(f"{rna.dna}\n")
 
 def parse_fasta(filename):
@@ -160,15 +158,15 @@ def most_central_element(distance_matrix: np.ndarray) -> int:
     central_index = int(np.argmin(total_distances))
     return central_index
 
-def run_mafft_distout(input_fasta: str, output_dist: str) -> bool:
+def run_mafft_distout(input_fasta: str,output:str) -> bool:
     """
     Runs MAFFT with --distout on input_fasta, writing the distance matrix to output_dist.
     Returns True if successful, False otherwise.
     """
     cmd = ["mafft", "--distout", input_fasta]
-    logging.info(f"Running MAFFT on '{input_fasta}' to generate '{output_dist}'.")
+    logging.info(f"Running MAFFT on '{input_fasta}' to generate '{output}'.")
     try:
-        with open(output_dist, "w") as dist_file:
+        with open(output, "w") as dist_file:
             subprocess.run(
                 cmd, stdout=dist_file, stderr=subprocess.PIPE,
                 timeout=300, check=True
@@ -187,18 +185,74 @@ def parse_mafft_distance_matrix(distance_file: str):
         seq_ids is a list of sequence IDs,
         dist_matrix is a 2D numpy array with distances.
     """
-    matrix = []
+    all_tokens = []
     seq_ids = []
+    # Read and clean the file lines.
     with open(distance_file, "r") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or line.startswith("Name"):
-                continue
-            parts = line.split()
-            seq_ids.append(parts[0])
-            matrix.append([float(x) for x in parts[1:]])
-    return seq_ids, np.array(matrix)
+        lines = [line.strip() for line in f if line.strip()]
 
+    if not lines:
+        return [], np.array([])
+
+    # first three lines are header info
+    header_line_count = 3
+    matrix_start_index = header_line_count
+
+    # Special case Only one sequence:
+    if lines[0].startswith('>'):
+        seq_id = lines[0][1:].strip()
+        return [seq_id], np.array([[0.0]])
+
+    # Process the sequence ID lines.
+    # the lines start with a digit followed by a dot.
+    for i, line in enumerate(lines[header_line_count:]):
+        if "=" in line:
+            # Split on the first "=" to get the ID.
+            parts = line.split("=", 1)
+            # parts[1] should be the sequence ID.
+            seq_ids.append(parts[1].strip())
+        else:
+            matrix_start_index = i + header_line_count
+            break
+
+    # If no sequence IDs were found, return empty values.
+    if not seq_ids:
+        return [], np.array([])
+
+    # If there is only one sequence, no matrix is produced.
+    if len(seq_ids) == 1:
+        return seq_ids, np.array([[0.0]])
+
+    # Combine all remaining lines into a list of numeric tokens.
+    for line in lines[matrix_start_index:]:
+        all_tokens.extend(line.split())
+
+    num_seqs = len(seq_ids) - 1
+    # For an upper-triangular matrix, the expected number of tokens is:
+    # n + (n-1) + (n-2) + ... + 1 = n*(n+1)/2.
+    expected_token_count = num_seqs * (num_seqs + 1) // 2
+    if len(all_tokens) < expected_token_count:
+        # File might be incomplete; return a zero matrix.
+        return seq_ids, np.zeros((num_seqs, num_seqs))
+
+    # Reconstruct the upper-triangular matrix.
+    upper_tri = []
+    idx = 0
+    for i in range(num_seqs):
+        # Row i should have (num_seqs - i) tokens.
+        row_tokens = all_tokens[idx: idx + (num_seqs - i)]
+        upper_tri.append([float(x) for x in row_tokens])
+        idx += (num_seqs - i)
+
+    # Build the full symmetric matrix by mirroring the upper-triangular values.
+    dist_matrix = np.zeros((num_seqs, num_seqs))
+    for i in range(num_seqs):
+        for j in range(i, num_seqs):
+            # In the upper-triangular matrix, row i holds the token for column j at index (j-i)
+            dist_matrix[i, j] = upper_tri[i][j - i]
+            dist_matrix[j, i] = upper_tri[i][j - i]
+
+    return seq_ids, dist_matrix
 
 def select_representative(seq_ids, dist_matrix) -> str:
     """
@@ -210,20 +264,19 @@ def select_representative(seq_ids, dist_matrix) -> str:
     idx = most_central_element(dist_matrix)
     return seq_ids[idx] if idx < len(seq_ids) else ""
 
-def process_rna_clustering_from_file(pan: Pangenome, tmpdir: Path, tsv_output: str):
+def process_rna_clustering_from_file(pan: Pangenome, tmpdir: Path, output_fasta: str):
     """
     Branch for when pan.status["geneSequences"] == "inFile".
     We don't have RNA objects in memory, only IDs in the HDF5 file.
     """
-
-    # 1Create dictionary: family_name -> list of RNA IDs
-    fam2rnas = write_rna_product_from_pangenome_file(pan.file, disable_bar=False)
-    logging.info(f"Found {len(fam2rnas)} unique RNA families from HDF5 file.")
+    # Create dictionary: family_name -> list of RNA IDs
+    fam2rnas, rna2fam_tsv = write_rna_product_from_pangenome_file(pan.file,tmpdir, disable_bar=False)
+    #logging.info(f"Found {len(fam2rnas)} unique RNA families from HDF5 file.")
 
     # For each family, write FASTA from the HDF5, run MAFFT, parse distance, etc.
     for family_name, rnas_list in fam2rnas.items():
         logging.info(f"Processing family '{family_name}' with {len(rnas_list)} RNA IDs.")
-        fam_fasta = os.path.join(tmpdir, f"{family_name}.fna")
+        fam_fasta = os.path.join(tmpdir, f"{family_name}.fasta")
 
         write_rna_sequences_from_pangenome_file(
             pangenome_filename=pan.file,
@@ -233,11 +286,11 @@ def process_rna_clustering_from_file(pan: Pangenome, tmpdir: Path, tsv_output: s
             disable_bar=False
         )
 
-        distance_path = os.path.join(tmpdir, f"{family_name}")
+        distance_path = os.path.join(tmpdir, f"{family_name}.fasta.hat2")
         if not run_mafft_distout(fam_fasta, distance_path):
             continue
-
-        seq_ids, dist_matrix = parse_mafft_distance_matrix(distance_path)
+        dist_file = fam_fasta + ".hat2"
+        seq_ids, dist_matrix = parse_mafft_distance_matrix(dist_file)
         rep_id = select_representative(seq_ids, dist_matrix)
         if not rep_id and rnas_list:
             rep_id = rnas_list[0]
@@ -251,48 +304,51 @@ def process_rna_clustering_from_file(pan: Pangenome, tmpdir: Path, tsv_output: s
             rep_seq = fasta_dict.get(rnas_list[0], "")
             rep_id = rnas_list[0] if rep_seq else rep_id
 
-        # Write to TSV
-        with open(tsv_output, "a") as out_tsv:
-            out_tsv.write(f"{family_name}\t{rep_id}\t{rep_seq}\n")
+        # Write to Fasta
+        with open(output_fasta, "a") as out_fa:
+            out_fa.write(f">{family_name}|{rep_id}\n{rep_seq}\n")
 
         os.remove(fam_fasta)
         os.remove(distance_path)
 
-def process_rna_clustering_from_annotation(pan: Pangenome, tmpdir: Path, tsv_output: str):
+    return rna2fam_tsv
+
+def process_rna_clustering_from_annotation(pan: Pangenome, tmpdir: Path, output_fasta: str):
     """
     Branch for when pan.status["geneSequences"] is in ["Computed", "Loaded"].
     We already have RNA objects in memory.
     """
-
+    # create the path to write the rna -> family
+    rna2fam_tsv = os.path.join(tmpdir, "rna_to_fam.tsv")
     # Build the dictionary: family_name -> list of RNA objects
     rna_families = defaultdict(list)
-    for rna in pan.RNAs:
-        fam_name = rna.product.strip()
-        rna_families[fam_name].append(rna)
+    with open(rna2fam_tsv, "w") as out_tsv:
+        for rna in pan.RNAs:
+            fam_name = rna.product.strip()
+            rna_families[fam_name].append(rna)
+            out_tsv.write(f"{rna.ID}\t{fam_name}\n")
 
     logging.info(f"Found {len(rna_families)} RNA families in memory.")
 
-    # For each family, write FASTA, run MAFFT, parse distance, select rep, write to TSV
+    # For each family, write FASTA, run MAFFT, parse distance, select rep, write to fasta
     for family_name, rnas_list in rna_families.items():
-        fam_fasta = os.path.join(tmpdir, f"{family_name}.fna")
+        fam_fasta = os.path.join(tmpdir, f"{family_name}.fasta")
         logging.info(f"Writing FASTA for family '{family_name}' with {len(rnas_list)} RNAs -> {fam_fasta}")
 
         write_rna_sequences_from_annotations(
             rnas_to_write=rnas_list,
             output=Path(fam_fasta),
-            add="ppanggolin_",
             compress=False,
             disable_bar=False
         )
-
-        distance_path = os.path.join(tmpdir, f"{family_name}")
+        distance_path = os.path.join(tmpdir, f"{family_name}.fasta.hat2")
         if not run_mafft_distout(fam_fasta, distance_path):
             continue
+        dist_file = fam_fasta + ".hat2"
 
-        seq_ids, dist_matrix = parse_mafft_distance_matrix(distance_path)
+        seq_ids, dist_matrix = parse_mafft_distance_matrix(dist_file)
         rep_id = select_representative(seq_ids, dist_matrix)
         if not rep_id:
-            # fallback
             rep_id = rnas_list[0].ID
 
         # Find the RNA object with that ID
@@ -300,14 +356,15 @@ def process_rna_clustering_from_annotation(pan: Pangenome, tmpdir: Path, tsv_out
         if representative is None and rnas_list:
             representative = rnas_list[0]
 
-        # Write to TSV
-        with open(tsv_output, "a") as out_tsv:
-            out_tsv.write(f"{family_name}\t{representative.ID}\t{representative.dna}\n")
+        # Write to Fasta
+        with open(output_fasta, "a") as out_fa:
+            out_fa.write(f">{family_name}|{representative.ID}\n{representative.dna}\n")
 
         os.remove(fam_fasta)
         os.remove(distance_path)
+    return rna2fam_tsv
 
-def rna_fam_clustering(pan: Pangenome, tmpdir: Path) -> str:
+def rna_fam_clustering(pan: Pangenome, tmpdir: Path) -> tuple[str, str]:
     """
     Groups RNAs by families, generates a FASTA file for each family,
     runs MAFFT to compute a distance matrix, selects the most central element,
@@ -319,23 +376,17 @@ def rna_fam_clustering(pan: Pangenome, tmpdir: Path) -> str:
     """
     logging.info(f"RNA family clustering - geneSequences status: {pan.status['geneSequences']}")
 
-    tsv_output = os.path.join(tmpdir, "rna_family_representatives.tsv")
-    # Prepare the TSV file to write family \t RepID \t Sequence
-    with open(tsv_output, "w") as out_tsv:
-        out_tsv.write("Family\tRepresentative_ID\tRepresentative_Sequence\n")
+    fna_output = os.path.join(tmpdir, "rna_family_representatives.fna")
 
     # geneSequences in ["Computed", "Loaded"]
     if pan.status["geneSequences"] in ["Computed", "Loaded"]:
-        process_rna_clustering_from_annotation(pan, tmpdir, tsv_output)
+        rna2fam_tsv = process_rna_clustering_from_annotation(pan, tmpdir, fna_output)
 
     # geneSequences == "inFile"
     elif pan.status["geneSequences"] == "inFile":
-        process_rna_clustering_from_file(pan, tmpdir, tsv_output)
+        rna2fam_tsv = process_rna_clustering_from_file(pan, tmpdir, fna_output)
 
-    else:
-        logging.warning("Unknown geneSequences status. No RNA clustering performed.")
-
-    return tsv_output
+    return fna_output, rna2fam_tsv
 
 def create_mmseqs_db(
     sequences: Iterable[Path],
@@ -680,6 +731,7 @@ def write_sequence_files(
     soft_core: float = 0.95,
     regions: str = None,
     genes: str = None,
+    rnas: str = None,
     intergenics: str = None,
     proteins: str = None,
     gene_families: str = None,
@@ -756,6 +808,20 @@ def write_sequence_files(
 
         genes = None
 
+    if rnas is not None:
+
+        logging.getLogger("PPanGGOLiN").info(
+            "Writing rnas nucleotide sequences by reading the pangenome file directly."
+        )
+        write_rnas_sequences_from_file(
+            pangenome_filename=pangenome.file,
+            output=output,
+            compress=compress,
+            disable_bar=disable_bar,
+        )
+
+        rnas = None
+
     if intergenics is not None:
 
         logging.getLogger("PPanGGOLiN").info(
@@ -782,7 +848,7 @@ def write_sequence_files(
             soft_core=soft_core,
             compress=compress,
             disable_bar=disable_bar,
-            **translate_kwgs,
+            **translate_kwgs
         )
 
         proteins = None
@@ -826,6 +892,7 @@ def launch(args: argparse.Namespace):
         soft_core=args.soft_core,
         regions=args.regions,
         genes=args.genes,
+        rnas=args.rnas,
         intergenics=args.intergenics,
         proteins=args.proteins,
         gene_families=args.gene_families,
@@ -923,6 +990,12 @@ def parser_seq(parser: argparse.ArgumentParser):
         required=False,
         type=filter_values,
         help=f"Write all nucleotide CDS sequences. {poss_values_log}",
+    )
+    onereq.add_argument(
+        "--rnas",
+        required=False,
+        type=filter_values,
+        help=f"Write all rnas sequences. {poss_values_log}",
     )
     onereq.add_argument(
         "--intergenics",
