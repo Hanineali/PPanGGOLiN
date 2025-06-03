@@ -934,12 +934,12 @@ class Contig(MetaFeatures):
         coordinate = tuple(intergenic.coordinates) if isinstance(intergenic.coordinates,list) else intergenic.coordinates
         self._intergenic_getter[coordinate] = intergenic
 
-    def get_intergenic(self, source: str, target: str) -> Intergenic:
+    def get_intergenic(self,  source:Union[Gene, RNA], target: Union[Gene, RNA]) -> Intergenic:
         """
         Retrieve an intergenic region by its source and target genes.
 
-        :param source: ID of the source gene.
-        :param target: ID of the target gene.
+        :param source: source feature
+        :param target: target feature.
         :return: Intergenic region object.
         """
         return self._intergenic_by_neighbors.get((source, target))
@@ -979,7 +979,7 @@ class Contig(MetaFeatures):
     def number_of_intergenics(self) -> int:
         """Get the number of intergenic regions in the contig."""
         total = len(self._intergenic_by_neighbors)
-        print(f"Total intergenics in contig {self.name}: {total}")  # Debug statement
+        # print(f"Total intergenics in contig {self.name}: {total}")  # Debug statement
         return total
 
     def get_intergenic_by_coordinates(self, start: int, stop: int) -> Intergenic:
@@ -1044,6 +1044,7 @@ class Organism(MetaFeatures):
         self.name = name
         self._contigs_getter = {}
         self._families = None
+        self._rnafamilies = None
         self.bitarray = None
         self._intergenic_getter = {}
         self._intergenic_by_neighbors = {}
@@ -1059,6 +1060,10 @@ class Organism(MetaFeatures):
     def _set_families(self):
         """Set the set of gene families belonging to organism"""
         self._families = {gene.family for gene in self.genes}
+
+    def _set_rnafamilies(self):
+        """Set the set of rna families belonging to organism"""
+        self._rnafamilies = {rna.family for rna in self.rna_genes}
 
     def __setitem__(self, name: str, contig: Contig):
         """Set contig to the organism
@@ -1145,6 +1150,26 @@ class Organism(MetaFeatures):
         if self._families is None:
             self._set_families()
         return len(self._families)
+
+    @property
+    def rnafamilies(self):
+        """Return the rna families present in the organism
+
+        :return: Generator of rna families
+        :rtype: Generator[rnaFamily, None, None]
+        """
+        if self._rnafamilies is None:
+            self._set_rnafamilies()
+        yield from self._rnafamilies
+
+    def number_of_rnafamilies(self) -> int:
+        """Get the number of rna families in the organism
+
+        :return: Number of rna families
+        """
+        if self._rnafamilies is None:
+            self._set_rnafamilies()
+        return len(self._rnafamilies)
 
     @property
     def genes(self) -> Generator[Gene, None, None]:
