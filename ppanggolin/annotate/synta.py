@@ -95,7 +95,7 @@ def launch_aragorn(
             if start < 1 or stop < 1:
                 # In some case aragorn gives negative coordinates. This case is just ignored.
                 logging.warning(
-                    f"Aragorn gives non valid coordiates for a RNA gene in contig {contig_name}: {line_data}. This RNA is ignored."
+                    f"Aragorn gives non valid coordinates for a RNA gene in contig {contig_name}: {line_data}. This RNA is ignored."
                 )
                 continue
             if (
@@ -790,7 +790,7 @@ def process_genes_intergenics_seq(contig, features_list, contig_seq, org, regist
                 intergenic_seq=intergenic_seq,
             )
     except Exception as e:
-        print(f" Error processing {contig.name}: {e}")
+        raise Exception(f"Error processing {contig.name} : {e}")
 
 def create_intergenic(org, contig, coordinates, intergenic_id, is_border, source, target, offset, intergenic_seq):
     """
