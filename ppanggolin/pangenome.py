@@ -9,7 +9,7 @@ from pathlib import Path
 import tables
 
 # local libraries
-from ppanggolin.genome import Organism, Contig, Gene, Intergenic
+from ppanggolin.genome import Organism, Contig, Gene, Intergenic, RNA
 from ppanggolin.region import Region, Spot, Module
 from ppanggolin.geneFamily import GeneFamily
 from ppanggolin.rnaFamily import rnaFamily
@@ -199,6 +199,64 @@ class Pangenome:
         """
         return sum(ctg.number_of_rnas for ctg in self.contigs)
 
+    def _mk_rna_getter(self):
+        """
+        Builds the attribute _rna_getter of the pangenome
+        """
+        self._rna_getter = {}
+        for rna in self.RNAs:
+            self._rna_getter[rna.ID] = rna
+
+    def get_rna(self, rna_id: str) -> RNA:
+        """Returns the rna that has the given rna ID
+
+        :param rna_id: The rna ID to look for
+
+        :return: Returns the rna that has the ID `rna_id`
+
+        :raises AssertionError: If the `rna_id` is not a string
+        :raises KeyError: If the `rna_id` is not in the pangenome
+        """
+        assert isinstance(
+            rna_id, str
+        ), f"The provided rna id ({rna_id}) should be a string and not a {type(rna_id)}"
+
+        try:
+            rna = self._rna_getter[rna_id]
+        except AttributeError:
+            # in that case, either the rna getter has not been computed, or the rnaID is not in the pangenome.
+            self._mk_rna_getter()  # make it
+            return self.get_rna(
+                rna_id
+            )  # Return what was expected. If geneID does not exist it will raise an error.
+        except KeyError:
+            raise KeyError(f"{rna_id} does not exist in the pangenome.")
+        else:
+            return rna
+
+    def get_feature(self, feature_id: str) -> Union[Gene, RNA, Intergenic]:
+        """Returns the feature that has the given feature ID
+
+        :param feature_id: The feature (gene/rna/intergenic) ID to look for
+
+        :return: Returns the feature object that has the ID `feature_id`
+
+        :raises AssertionError: If the `feature_id` is not a string
+        :raises KeyError: If the `feature_id` is not in the pangenome
+        """
+        assert isinstance(
+            feature_id, str
+        ), f"The provided feature id ({feature_id}) should be a string and not a {type(feature_id)}"
+
+        if "|" in feature_id:
+            return self.get_intergenic(feature_id)
+        elif "RNA" in feature_id:
+            return self.get_rna(feature_id)
+        elif "CDS" in feature_id:
+            return self.get_gene(feature_id)
+        else:
+            raise KeyError(f"Unknown feature type for {feature_id}")
+
     """Intergenic regions methods"""
 
     @property
@@ -216,9 +274,43 @@ class Pangenome:
         :return: The number of genes
         """
         total = sum(contig.number_of_intergenics for contig in self.contigs)
-        print(f"Total intergenics in pangenome: {total}")  # Debug statement
+        #print(f"Total intergenics in pangenome: {total}")  # Debug statement
         return total
 
+    def _mk_intergenic_getter(self):
+        """
+        Builds the attribute _intergenic_getter of the pangenome
+        """
+        self._intergenic_getter = {}
+        for intergenic in self.intergenics:
+            self._intergenic_getter[intergenic.ID] = intergenic
+
+    def get_intergenic(self, intergenic_id: str) -> Intergenic:
+        """Returns the intergenic that has the given intergenic ID
+
+        :param intergenic_id: The intergenic ID to look for
+
+        :return: Returns the intergenic that has the ID `intergenic_id`
+
+        :raises AssertionError: If the `intergenic_id` is not a string
+        :raises KeyError: If the `intergenic_id` is not in the pangenome
+        """
+        assert isinstance(
+            intergenic_id, str
+        ), f"The provided intergenic id ({intergenic_id}) should be a string and not a {type(intergenic_id)}"
+
+        try:
+            intergenic = self._intergenic_getter[intergenic_id]
+        except AttributeError:
+            # in that case, either the intergenic getter has not been computed, or the intergenicID is not in the pangenome.
+            self._mk_intergenic_getter()  # make it
+            return self.get_intergenic(
+                intergenic_id
+            )  # Return what was expected. If intergenicID does not exist it will raise an error.
+        except KeyError:
+            raise KeyError(f"{intergenic_id} does not exist in the pangenome.")
+        else:
+            return intergenic
 
     """Gene families methods"""
 
@@ -294,6 +386,67 @@ class Pangenome:
                 f"Cannot add family {family.name}: A family with the same name already exists."
             )
 
+    """RNA families methods"""
+
+    @property
+    def rna_families(self) -> Generator[rnaFamily, None, None]:
+        """
+        Returns all the RNA families in the pangenome.
+        """
+        yield from self._rnaFam_getter.values()
+
+    @property
+    def number_of_rna_families(self) -> int:
+        """
+        Returns the number of RNA families present in the pangenome.
+        """
+        return len(self._rnaFam_getter)
+
+    @property
+    def max_rnaFam_id(self) -> int:
+        """
+        Get the last used RNA family identifier.
+        """
+        return self._max_rnaFam_id
+
+    @max_rnaFam_id.setter
+    def max_rnaFam_id(self, value: int):
+        """
+        Set the last used RNA family identifier.
+        """
+        self._max_rnaFam_id = value
+
+    def get_rna_family(self, family_name: str) -> rnaFamily:
+        """
+        Return the RNA family that has the given `family_name`.
+        Raises KeyError if not found.
+        """
+        if not isinstance(family_name, str):
+            raise AssertionError("RNA family name should be a string")
+        try:
+            fam = self._rnaFam_getter[family_name]
+        except KeyError:
+            raise KeyError(f"RNA family with name={family_name} not in pangenome.")
+        else:
+            return fam
+
+    def add_rna_family(self, rna_fam: rnaFamily):
+        """
+        Adds the given RNA family to the pangenome. If a family with the same name already exists, raises KeyError.
+        """
+        if not isinstance(rna_fam, rnaFamily):
+            raise AssertionError("Expected an RNAFamily object.")
+        try:
+            self.get_rna_family(rna_fam.name)
+        except KeyError:
+            # Family does not exist, so add it
+            self._rnaFam_getter[rna_fam.name] = rna_fam
+            self.max_rnaFam_id += 1
+        else:
+            raise KeyError(
+                f"Cannot add RNA family {rna_fam.name}: a family with the same name already exists."
+            )
+
     """Graph methods"""
 
     @property
@@ -304,35 +457,36 @@ class Pangenome:
         """
         yield from self._edge_getter.values()
 
-    def add_edge(self, gene1: Gene, gene2: Gene) -> Edge:
+    def add_edge(self, feature1: Union[Gene,RNA], feature2: Union[Gene,RNA]) -> Edge:
         """
-        Adds an edge between the two gene families that the two given genes belong to.
+        Adds an edge between the two gene or rna families that the two given genes/rnas belong to.
 
-        :param gene1: The first gene
-        :param gene2: The second gene
+         :param feature1: The first feature
+        :param feature2: The second feature
+        :param rnas: To disable and enable RNAs
 
         :return: The created Edge
 
-        :raises AssertionError: Genes object are expected
-        :raises AttributeError: Genes are not associated to any families
+        :raises AssertionError: Genes or RNAs object are expected
+        :raises AttributeError: Genes / RNAs are not associated to any families
         """
-        assert isinstance(gene1, Gene) and isinstance(
-            gene2, Gene
-        ), "Gene object are expected"
+        assert isinstance(feature1, (Gene, RNA)) and isinstance(feature2, (Gene, RNA))
         try:
-            family_1, family_2 = gene1.family, gene2.family
+            family_1, family_2 = feature1.family, feature2.family
         except AttributeError:
             raise AttributeError(
-                "Genes are not linked to families. Check that you compute the gene families and post an"
+                "Genes/RNAs are not linked to families. Check that you compute the gene/rna families and post an"
                 " issue on our GitHub"
             )
-        key = frozenset([family_1, family_2])
+        # switch from frozenset to tuple to preserve the order
+        key = (family_1, family_2)
         edge = self._edge_getter.get(key)
         if edge is None:
-            edge = Edge(gene1, gene2)
+            edge = Edge(feature1, feature2)
             self._edge_getter[key] = edge
+            edge.add_features(feature1, feature2)  # Ensure that features are added after Edge creation
         else:
-            edge.add_genes(gene1, gene2)
+            edge.add_features(feature1, feature2)
         return edge
 
     @property
