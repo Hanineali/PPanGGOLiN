@@ -800,7 +800,7 @@ def rna_sequences_desc(
         "rna": tables.StringCol(itemsize=rna_id_len),
         "seqid": tables.UInt32Col(),
         "type": tables.StringCol(itemsize=rna_type_len),
-        "prodcut": tables.StringCol(itemsize=rna_product_len),
+        "product": tables.StringCol(itemsize=rna_product_len),
     }
 
 def get_sequence_len(pangenome: Pangenome) -> int:
