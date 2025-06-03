@@ -143,7 +143,7 @@ def write_json_nodes(json: TextIO):
         write_json_gene_fam(family, json)
     json.write("]")
 
-
+# function updated to take into consideration all features genes and rnas
 def write_json_edge(edge: Edge, json: TextIO):
     """Write the edge graph in json file
 
@@ -152,23 +152,23 @@ def write_json_edge(edge: Edge, json: TextIO):
     """
     json.write("{")
     json.write(
-        f'"weight": {len(edge.gene_pairs)}, "source": "{edge.source.name}", "target": "{edge.target.name}"'
+        f'"weight": {len(edge.feature_pairs)}, "source": "{edge.source.name}", "target": "{edge.target.name}"'
     )
     json.write(', "genomes": {')
     orgstr = []
     for org in edge.organisms:
         orgstr.append('"' + org.name + '": [')
-        genepairstr = []
-        for gene_pair in edge.get_organism_genes_pairs(org):
-            genepairstr.append(
+        featurepairstr = []
+        for feature_pairs in edge.get_organism_feature_pairs(org):
+            featurepairstr.append(
                 '{"source": "'
-                + gene_pair[0].ID
+                + feature_pairs[0].ID
                 + '", "target": "'
-                + gene_pair[1].ID
-                + f'", "length": {gene_pair[0].start - gene_pair[1].stop}'
+                + feature_pairs[1].ID
+                + f'", "length": {feature_pairs[0].start - feature_pairs[1].stop}'
                 + "}"
             )
-        orgstr[-1] += ", ".join(genepairstr) + "]"
+        orgstr[-1] += ", ".join(featurepairstr) + "]"
     json.write(", ".join(orgstr) + "}}")
 
 
@@ -389,7 +389,7 @@ def write_gexf_edges(gexf: TextIO, light: bool = True):
         )
         gexf.write(f'        <viz:thickness value="{edge.number_of_organisms}" />\n')
         gexf.write("        <attvalues>\n")
-        gexf.write(f'          <attvalue for="11" value="{len(edge.gene_pairs)}" />\n')
+        gexf.write(f'          <attvalue for="11" value="{len(edge.feature_pairs)}" />\n')
         if not light:
             for org, genes_pairs in edge.get_organisms_dict().items():
                 gexf.write(
