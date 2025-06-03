@@ -1723,7 +1723,7 @@ def get_gene_sequences_from_fastas(
                 try:
                     # sort genes by start position
                     all_features = sorted(list(contig.genes) + list(contig.RNAs), key=lambda x: x.start)
-                    process_genes_and_intergenics_gff_gbff(contig,all_features,fasta_dict[org][contig.name], org)
+                    process_genes_intergenics_seq(contig, all_features, fasta_dict[org][contig.name], org, register_features=False)
                     bar.update()
                     # for rna in contig.RNAs:
                     #     rna.add_sequence(get_dna_sequence(fasta_dict[org][contig.name], rna))
