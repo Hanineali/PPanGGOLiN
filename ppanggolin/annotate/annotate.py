@@ -18,14 +18,15 @@ import warnings
 # installed libraries
 from tqdm import tqdm
 from tables.path import check_name_validity, NaturalNameWarning
+from typing import Optional
 
 # local libraries
 from ppanggolin.annotate.synta import (
     annotate_organism,
     get_contigs_from_fasta_file,
-    get_dna_sequence,
     init_contig_counter,
     contig_counter,
+    process_genes_intergenics_seq
 )
 from ppanggolin.pangenome import Pangenome
 from ppanggolin.genome import Organism, Gene, RNA, Contig
@@ -67,6 +68,31 @@ def check_annotate_args(args: argparse.Namespace):
     if hasattr(args, "anno") and args.anno is not None:
         check_input_files(args.anno, True)
 
+# function added to normalize the string of the product
+def normalize_product(product:str, org:Organism):
+    """
+      Normalizes the product string:
+        - Replaces non-ASCII characters with underscores (after logging a warning).
+        - Replaces hyphens with underscores.
+        - Strips leading/trailing whitespace.
+
+      :param product: The original product string.
+      :param org: Organism object, used for logging.
+      :return: The normalized product string.
+      """
+    if has_non_ascii(product):
+        logging.getLogger("PPanGGOLiN").warning(
+            f"In genome '{org.name}', the 'product' field of the gene contains non-ASCII characters: '{product}'. "
+            "These characters cannot be stored in the HDF5 file and will be replaced by underscores."
+        )
+        product = replace_non_ascii(product)
+    if "-" in product:
+        product = product.replace("-", "_")
+
+    if "," in product:
+        product = product.split(",", 1)[0]
+
+    return product
 
 def create_gene(
     org: Organism,
@@ -83,12 +109,12 @@ def create_gene(
     product: str = "",
     genetic_code: int = 11,
     protein_id: str = "",
-) -> Gene:
+) -> Union[Gene, RNA]:
     """
-    Create a Gene object and associate to contig and Organism
+    Create an Gene or RNA object and associate to contig and Organism
 
-    :param org: Organism to add gene
-    :param contig: Contig to add gene
+    :param org: Organism to add gene/rna
+    :param contig: Contig to add gene/rna
     :param gene_counter: Gene counter to name gene
     :param rna_counter: RNA counter to name RNA
     :param gene_id: local identifier
@@ -102,6 +128,14 @@ def create_gene(
     :param genetic_code: Genetic code used
     :param protein_id: Protein identifier
     """
+    # If product is missing or empty, log a warning and fallback
+    if not product or product.strip() == "":
+        logging.getLogger("PPanGGOLiN").warning(
+            f"In genome '{org.name}', gene/rna '{gene_id}' has an empty '/product' field."
+        )
+
+    # check for non ascii character in product field and normalise the string
+    product = normalize_product(product,org)
 
     start, stop = coordinates[0][0], coordinates[-1][1]
 
@@ -149,12 +183,11 @@ def create_gene(
             coordinates=coordinates,
             gene_type=gene_type,
             name=gene_name,
-            product=product,
+            product=product.replace(" ", "_") #"16S_ribosomal_RNA"
         )
         contig.add_rna(new_gene)
     new_gene.fill_parents(org, contig)
     return new_gene
-
 
 def extract_positions(string: str) -> Tuple[List[Tuple[int, int]], bool, bool, bool]:
     """
@@ -669,6 +702,8 @@ def read_org_gbff(
     gene_counter = 0
     rna_counter = 0
     contig_to_metadata = {}
+    contig_sequences = {}  # Dictionary to map contig names to their sequences
+
 
     for header, features, sequence in parse_gbff_by_contig(gbff_file_path):
         if "LOCUS" not in header:
@@ -716,6 +751,10 @@ def read_org_gbff(
             organism.add(contig)
             contig.length = contig_len
 
+        # Map contig name to its sequence
+        contig_sequences[contig.name] = sequence
+
+
         for feature in features:
             if feature["feature_type"] == "source":
                 contig_to_metadata[contig] = {
@@ -741,8 +780,10 @@ def read_org_gbff(
                     else:
                         contig_to_metadata[contig].update(db_xref_for_metadata)
             genetic_code = ""
-            if feature["feature_type"] not in ["CDS", "rRNA", "tRNA"]:
+            # taking into consideration all the types of RNA available in a gbff file
+            if "RNA" not in feature["feature_type"] and feature["feature_type"] != "CDS":
                 continue
+
             coordinates, is_complement, has_partial_start, has_partial_end = (
                 extract_positions("".join(feature["location"]))
             )
@@ -791,7 +832,7 @@ def read_org_gbff(
 
             strand = "-" if is_complement else "+"
 
-            gene = create_gene(
+            create_gene(
                 org=organism,
                 contig=contig,
                 gene_counter=gene_counter,
@@ -808,12 +849,20 @@ def read_org_gbff(
                 protein_id=feature["protein_id"],
             )
 
-            gene.add_sequence(get_dna_sequence(sequence, gene))
-
             if feature["feature_type"] == "CDS":
                 gene_counter += 1
             else:
                 rna_counter += 1
+
+    # Process contigs to extract genes and intergenic regions
+    for contig in organism.contigs:
+        all_features = sorted(
+            list(contig.genes) + list(contig.RNAs), key=lambda x: x.start
+        )
+        #print(f"Checking features for contig {contig.name}: {len(all_features)} genes found")
+        process_genes_intergenics_seq(contig, all_features, contig_sequences[contig.name], organism, register_features = False)
+        #print_intergenic_sequences(organism,"GCF_000026905.1")
+        #print_genes_sequences(organism,"GCF_000026905.1")
 
     genome_metadata, contig_to_uniq_metadata = combine_contigs_metadata(
         contig_to_metadata
@@ -821,7 +870,6 @@ def read_org_gbff(
     organism.add_metadata(
         metadata=Metadata(source="annotation_file", **genome_metadata)
     )
-
     for contig, metadata_dict in contig_to_uniq_metadata.items():
         contig.add_metadata(Metadata(source="annotation_file", **metadata_dict))
 
@@ -832,7 +880,6 @@ def read_org_gbff(
         )
 
     return organism, True
-
 
 def parse_db_xref_metadata(
     db_xref_values: List[str], annot_file_path: Path = ""
@@ -1062,6 +1109,7 @@ def read_org_gff(
                             # let's keep the circularity info in the circular_contigs list
                             circular_contigs.append(contig_name)
 
+                # All RNA types in gff file were added to be included
                 elif fields_gff[gff_type] == "CDS" or "RNA" in fields_gff[gff_type]:
 
                     id_attribute = get_id_attribute(attributes)
@@ -1091,6 +1139,14 @@ def read_org_gff(
                         is_partial = False
 
                     product = attributes.pop("PRODUCT", "")
+
+                    if has_non_ascii(product):
+
+                        logging.getLogger("PPanGGOLiN").warning(
+                            f"In genome '{organism}', the 'product' field of gene '{gene_id}' contains non-ASCII characters: '{product}'. "
+                            "These characters cannot be stored in the HDF5 file and will be replaced by underscores."
+                        )
+                        product = replace_non_ascii(product)
 
                     if contig is None or contig.name != fields_gff[gff_seqname]:
                         # get the current contig
@@ -1170,9 +1226,22 @@ def read_org_gff(
                         gene_counter += 1
                         contig.add(gene)
 
+                    # include all RNA types
                     elif "RNA" in fields_gff[gff_type]:
 
                         rna_type = fields_gff[gff_type]
+                        if not product.strip():
+                            logging.getLogger("PPanGGOLiN").warning(
+                                f"In genome '{organism}', rna '{fields_gff[gff_type]}' in GFF has empty '/product'"
+                            )
+                            continue
+                        if rna_type == "tmRNA":
+                            product = "transfer_messenger_RNA"
+                        elif rna_type == "tRNA" :
+                            product = re.sub(r'\(.*$', '', product)
+
+                        product = normalize_product(product,org)
+
                         rna = RNA(
                             org.name + f"_{rna_type}_" + str(rna_counter).zfill(4)
                         )
@@ -1183,7 +1252,7 @@ def read_org_gff(
                             strand=fields_gff[gff_strand],
                             gene_type=fields_gff[gff_type],
                             name=name,
-                            product=product,
+                            product=product.replace(" ", "_"),
                             local_identifier=gene_id,
                         )
                         rna.fill_parents(org, contig)
@@ -1211,11 +1280,10 @@ def read_org_gff(
         correct_putative_overlaps(org.contigs)
 
         for contig in org.contigs:
-
-            for gene in contig.genes:
-                gene.add_sequence(get_dna_sequence(contig_sequences[contig.name], gene))
-            for rna in contig.RNAs:
-                rna.add_sequence(get_dna_sequence(contig_sequences[contig.name], rna))
+            all_features = sorted(
+                list(contig.genes) + list(contig.RNAs), key=lambda x: x.start
+            )
+            process_genes_intergenics_seq(contig, all_features, contig_sequences[contig.name], org, register_features=False)
 
     # add metadata to genome and contigs
     if contig_name_to_region_info:
@@ -1227,7 +1295,6 @@ def read_org_gff(
             f"in {gff_file_path}. Provided translation_table argument value was used instead: {translation_table}."
         )
     return org, has_fasta
-
 
 def add_metadata_from_gff_file(
     contig_name_to_region_info: Dict[str, Dict[str, str]],
@@ -1478,7 +1545,6 @@ def chose_gene_identifiers(pangenome: Pangenome) -> bool:
     else:
         return False
 
-
 def local_identifiers_are_unique(genes: Iterable[Gene]) -> bool:
     """
     Check if local_identifiers of genes are uniq in order to decide if they should be used as gene id.
@@ -1655,11 +1721,10 @@ def get_gene_sequences_from_fastas(
         for org in pangenome.organisms:
             for contig in org.contigs:
                 try:
-                    for gene in contig.genes:
-                        gene.add_sequence(
-                            get_dna_sequence(fasta_dict[org][contig.name], gene)
-                        )
-                        bar.update()
+                    # sort genes by start position
+                    all_features = sorted(list(contig.genes) + list(contig.RNAs), key=lambda x: x.start)
+                    process_genes_and_intergenics_gff_gbff(contig,all_features,fasta_dict[org][contig.name], org)
+                    bar.update()
                     # for rna in contig.RNAs:
                     #     rna.add_sequence(get_dna_sequence(fasta_dict[org][contig.name], rna))
                 except KeyError:
@@ -1673,6 +1738,46 @@ def get_gene_sequences_from_fastas(
                     )
                     raise KeyError(msg)
     pangenome.status["geneSequences"] = "Computed"
+
+""" Functions used for debugging """
+
+def print_intergenic_sequences(organism: Organism, target_organism: Optional[str] = None):
+
+    print(f"\n Intergenic Regions for Organism: {target_organism}")
+
+    for contig in organism.contigs:
+        print(f"\n Contig: {contig.name} | Circular: {contig.is_circular}")
+
+        for intergenic in contig.intergenics:  # Iterate through intergenic regions
+            print(f" Intergenic ID: {intergenic.ID}")
+            print(f"   - Coordinates: {intergenic.coordinates}")
+            print(f"   - Sequence Length: {len(intergenic.dna) if intergenic.dna else 'N/A'}")
+            print(f"   - Border Intergenic: {intergenic.is_border}")
+            print(f"   - Sequence: {intergenic.dna}")  # Print first 50 bp only
+
+        print("\n" + "=" * 50)
+
+def print_genes_sequences(organism: Organism, target_organism: Optional[str] = None):
+    """
+    Print all extracted intergenic sequences for a specific organism.
+
+    :param organism: Organism object containing contigs and intergenic regions.
+    :param target_organism: The organism ID for which intergenic sequences should be printed.
+    """
+    print(f"\n genes for Organism: {target_organism}")
+
+    for contig in organism.contigs:
+        print(f"\n Contig: {contig.name} | Circular: {contig.is_circular}")
+        all_features = sorted(list(contig.genes) + list(contig.RNAs), key=lambda x: x.start)
+
+        print(f"{len(all_features)}")
+
+        for gene in all_features:  # Iterate through intergenic regions
+            print(f" Gene ID: {gene.ID}")
+            print(f"   - Coordinates: {gene.coordinates}")
+
+
+        print("\n" + "=" * 50)
 
 
 def annotate_pangenome(

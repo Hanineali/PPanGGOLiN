@@ -15,14 +15,14 @@ from gmpy2 import popcount
 
 # local libraries
 from ppanggolin.pangenome import Pangenome
-from ppanggolin.formats.writeAnnotations import write_annotations, write_gene_sequences
+from ppanggolin.formats.writeAnnotations import write_annotations, write_gene_intergenic_sequences
 from ppanggolin.formats.writeMetadata import (
     write_metadata,
     erase_metadata,
     write_metadata_status,
 )
 from ppanggolin.genome import Feature, Gene
-from ppanggolin.formats.readBinaries import read_genedata, Genedata
+from ppanggolin.formats.readBinaries import read_genedata, Genedata, Intergenicdata
 
 
 def getmean(arg: iter) -> float:
@@ -104,6 +104,39 @@ def get_gene_fam_len(pangenome: Pangenome) -> Tuple[int, int, int]:
             max_part_len = len(genefam.partition)
     return max_gene_fam_name_len, max_gene_fam_seq_len, max_part_len
 
+def rna_fam_desc(
+    max_name_len: int, max_sequence_length: int
+) -> dict:
+    """
+    Create a formatted table for rna families description
+
+    :param max_name_len: Maximum size of rna family name
+    :param max_sequence_length: Maximum size of rna family representing rna sequences
+
+
+    :return: Formatted table
+    """
+    return {
+        "name": tables.StringCol(itemsize=max_name_len),
+        "sequence": tables.StringCol(itemsize=max_sequence_length),
+    }
+
+def get_rna_fam_len(pangenome: Pangenome) -> Tuple[int, int]:
+    """
+    Get maximum size of rna families information
+
+    :param pangenome: Pangenome with rna families computed
+
+    :return: Maximum size of each element
+    """
+    max_rna_fam_name_len = 1
+    max_rna_fam_seq_len = 1
+    for rnafam in pangenome.rna_families:
+        if len(rnafam.sequence) > max_rna_fam_seq_len:
+            max_rna_fam_seq_len = len(rnafam.sequence)
+        if len(rnafam.name) > max_rna_fam_name_len:
+            max_rna_fam_name_len = len(rnafam.name)
+    return max_rna_fam_name_len, max_rna_fam_seq_len
 
 def write_gene_fam_info(
     pangenome: Pangenome,
@@ -146,6 +179,46 @@ def write_gene_fam_info(
         row.append()
     gene_fam_seq.flush()
 
+def write_rna_fam_info(
+    pangenome: Pangenome,
+    h5f: tables.File,
+    force: bool = False,
+    disable_bar: bool = False,
+):
+    """
+    Writing a table containing the nucleotidic sequences of each family
+
+    :param pangenome: Pangenome with gene families computed
+    :param h5f: HDF5 file to write gene families
+    :param force: force to write information if precedent information exist
+    :param disable_bar: Disable progress bar
+    """
+    if "/rnaFamiliesInfo" in h5f and force is True:
+        logging.getLogger("PPanGGOLiN").info(
+            "Erasing the formerly computed rna family representative sequences..."
+        )
+        h5f.remove_node(
+            "/", "rnaFamiliesInfo"
+        )  # erasing the table, and rewriting a new one.
+    rna_fam_seq = h5f.create_table(
+        "/",
+        "rnaFamiliesInfo",
+        rna_fam_desc(*get_rna_fam_len(pangenome)),
+        expectedrows=pangenome.number_of_rna_families,
+    )
+
+    row = rna_fam_seq.row
+    for fam in tqdm(
+        pangenome.rna_families,
+        total=pangenome.number_of_rna_families,
+        unit="rna family",
+        disable=disable_bar,
+    ):
+        row["name"] = fam.name
+        row["sequence"] = fam.sequence
+        row.append()
+    rna_fam_seq.flush()
+
 
 def gene_to_fam_desc(gene_fam_name_len: int, gene_id_len: int) -> dict:
     """
@@ -161,6 +234,19 @@ def gene_to_fam_desc(gene_fam_name_len: int, gene_id_len: int) -> dict:
         "gene": tables.StringCol(itemsize=gene_id_len),
     }
 
+def rna_to_fam_desc(rna_fam_name_len: int, rna_id_len: int) -> dict:
+    """
+    Create a formatted table for rna in rna families information
+
+    :param rna_fam_name_len: Maximum size of rna family names
+    :param rna_id_len: Maximum size of rna identifier
+
+    :return: formatted table
+    """
+    return {
+        "rnaFam": tables.StringCol(itemsize=rna_fam_name_len),
+        "rna": tables.StringCol(itemsize=rna_id_len),
+    }
 
 def get_gene_to_fam_len(pangenome: Pangenome):
     """
@@ -180,6 +266,23 @@ def get_gene_to_fam_len(pangenome: Pangenome):
                 max_gene_id = len(gene.ID)
     return max_gene_fam_name, max_gene_id
 
+def get_rna_to_fam_len(pangenome: Pangenome):
+    """
+    Get maximum size of rna in rna families information
+
+    :param pangenome: Pangenome with rna families computed
+
+    :return: Maximum size of each element
+    """
+    max_rna_fam_name = 1
+    max_rna_id = 1
+    for family in pangenome.rna_families:
+        if len(family.name) > max_rna_fam_name:
+            max_rna_fam_name = len(family.name)
+        for rna in family.rnas:
+            if len(rna.ID) > max_rna_id:
+                max_rna_id = len(rna.ID)
+    return max_rna_fam_name, max_rna_id
 
 def write_gene_families(
     pangenome: Pangenome,
@@ -218,73 +321,159 @@ def write_gene_families(
             gene_row.append()
     gene_families.flush()
 
-
-def graph_desc(max_gene_id_len):
-    """
-    Create a formatted table for pangenome graph
-
-    :param max_gene_id_len: Maximum size of gene id
-
-    :return: formatted table
-    """
-    return {
-        "geneTarget": tables.StringCol(itemsize=max_gene_id_len),
-        "geneSource": tables.StringCol(itemsize=max_gene_id_len),
-    }
-
-
-def get_gene_id_len(pangenome: Pangenome) -> int:
-    """
-    Get maximum size of gene id in pangenome graph
-
-    :param pangenome: Pangenome with graph computed
-
-    :return: Maximum size of gene id
-    """
-    max_gene_len = 1
-    for gene in pangenome.genes:
-        if len(gene.ID) > max_gene_len:
-            max_gene_len = len(gene.ID)
-    return max_gene_len
-
-
-def write_graph(
+def write_rna_families(
     pangenome: Pangenome,
     h5f: tables.File,
     force: bool = False,
     disable_bar: bool = False,
 ):
     """
-    Function writing the pangenome graph
+    Function writing all the pangenome rna families
 
-    :param pangenome: pangenome with graph computed
-    :param h5f: HDF5 file to save pangenome graph
-    :param force: Force to write graph in hdf5 file if there is already one
+    :param pangenome: pangenome with gene families computed
+    :param h5f: HDF5 file to save pangenome with gene families
+    :param force: Force to write gene families in hdf5 file if there is already gene families
     :param disable_bar: Disable progress bar
     """
-    # TODO if we want to be able to read the graph without reading the annotations (because it's one of the most time
-    #  consumming parts to read), it might be good to add the organism name in the table here.
-    #  for now, forcing the read of annotations.
-    if "/edges" in h5f and force is True:
-        logging.getLogger("PPanGGOLiN").info("Erasing the formerly computed edges")
-        h5f.remove_node("/", "edges")
+    if "/rnaFamilies" in h5f and force is True:
+        logging.getLogger("PPanGGOLiN").info(
+            "Erasing the formerly computed rna family to rna associations..."
+        )
+        h5f.remove_node(
+            "/", "rnaFamilies"
+        )  # erasing the table, and rewriting a new one.
+    rna_families = h5f.create_table(
+        "/", "rnaFamilies", rna_to_fam_desc(*get_rna_to_fam_len(pangenome))
+    )
+    rna_row = rna_families.row
+    for family in tqdm(
+        pangenome.rna_families,
+        total=pangenome.number_of_rna_families,
+        unit="rna family",
+        disable=disable_bar,
+    ):
+        for rna in family.rnas:
+            rna_row["rna"] = rna.ID
+            rna_row["rnaFam"] = family.name
+            rna_row.append()
+    rna_families.flush()
+
+def graph_desc(
+    max_feature_id_len,
+    max_organism_len,
+    max_chain_len
+
+):
+    """
+    Create a formatted table for pangenome graph
+
+    :param max_feature_id_len: Maximum size of gene id
+    :param max_chain_len:  Maximum size of features in the larger intergenic chain list
+    :param max_organism_len: Maximum size of organism name
+
+    :return: formatted table
+    """
+    return {
+        "featureSource": tables.StringCol(itemsize=max_feature_id_len),
+        "featureTarget": tables.StringCol(itemsize=max_feature_id_len),
+        "organism": tables.StringCol(itemsize=max_organism_len),
+        "intergenic_chain": tables.StringCol(itemsize=max_chain_len),
+    }
+
+
+def get_feature_id_len(pangenome: Pangenome) -> Tuple[int, int, int]:
+    """
+    Get maximum size of feature id in pangenome graph
+    Get maximum size of features id in the larger intergenic chain list
+    Get maximum size of organism name in pangenome organisms
+
+    :param pangenome: Pangenome with graph computed
+    :return: Maximum size of gene id
+    """
+    max_feature_id_len = 1
+    max_organism_len = 1
+    max_intergenic_id_len = 1
+    max_chain_feature_count= 1
+    pangenome_features = list(pangenome.genes) + list(pangenome.RNAs)
+
+    for feature in pangenome_features:
+        if len(feature.ID) > max_feature_id_len:
+            max_feature_id_len = len(feature.ID)
+
+    for org in pangenome.organisms:
+        if len(org.name) > max_organism_len:
+            max_organism_len = len(org.name)
+
+    for intergenic in pangenome.intergenics:
+        if len(intergenic.ID) > max_intergenic_id_len:
+            max_intergenic_id_len = len(intergenic.ID)
+
+    for edge in pangenome.edges:
+        for chain in edge.intergenic_chain:
+            n = count_features(chain)
+            max_chain_feature_count = max(max_chain_feature_count, n)
+    max_chain_len = max_chain_feature_count * (max_intergenic_id_len + 10)
+
+    #print(f"{max_feature_id_len}, {max_organism_len}, {max_chain_len}")
+
+    return max_feature_id_len, max_organism_len, max_chain_len
+
+def count_features(chain):
+    """Recursively count all features in chain (can be tuple, list, or single feature)."""
+    if isinstance(chain, (tuple, list)):
+        return sum(count_features(item) for item in chain)
+    else:
+        return 1
+
+
+def write_graph(
+        pangenome: Pangenome,
+        h5f: tables.File,
+        force: bool = False,
+        disable_bar: bool = False,
+):
+    """
+       Function writing the pangenome of all features (genes/rnas/intergenic) graph
+
+       :param pangenome: pangenome with graph computed
+       :param h5f: HDF5 file to save pangenome graph
+       :param force: Force to write graph in hdf5 file if there is already one
+       :param disable_bar: Disable progress bar
+    """
+
+    if "/features_edges" in h5f and force is True:
+        logging.getLogger("PPanGGOLiN").info("Erasing the formerly computed features edges")
+        h5f.remove_node("/", "features_edges")
     edge_table = h5f.create_table(
         "/",
-        "edges",
-        graph_desc(get_gene_id_len(pangenome)),
+        "features_edges",
+        graph_desc(*get_feature_id_len(pangenome)),
         expectedrows=pangenome.number_of_edges,
     )
     edge_row = edge_table.row
     for edge in tqdm(
         pangenome.edges,
         total=pangenome.number_of_edges,
-        unit="edge",
+        unit="feature_edge",
         disable=disable_bar,
     ):
-        for gene1, gene2 in edge.gene_pairs:
-            edge_row["geneTarget"] = gene1.ID
-            edge_row["geneSource"] = gene2.ID
-            edge_row.append()
+        for org, org_data in edge._organisms.items():
+            pairs = org_data["pairs"]
+            intergenics_list = org_data["intergenic"]
+
+            for i, (pair, intergenic_chain) in enumerate(zip(pairs, intergenics_list)):
+                feat1, feat2 = pair
+                org_name = org.name
+
+                intergenic_ids = [getattr(feat, 'ID', str(feat)) for feat in intergenic_chain]
+
+                edge_row["featureSource"] = feat1.ID
+                edge_row["featureTarget"] = feat2.ID
+                edge_row["organism"] = org_name
+                edge_row["intergenic_chain"] = ",".join(intergenic_ids)
+                #print(f"Source:{feat1}| Target: {feat2}| ORG:{org_name}| IReg:{",".join(intergenic_ids)} ")
+                edge_row.append()
+
     edge_table.flush()
 
 
@@ -758,6 +947,7 @@ def erase_pangenome(
     pangenome: Pangenome,
     graph: bool = False,
     gene_families: bool = False,
+    rna_families: bool = False,  # New parameter for RNA family removal
     partition: bool = False,
     rgp: bool = False,
     spots: bool = False,
@@ -832,6 +1022,20 @@ def erase_pangenome(
                 h5f.del_node_attr(info_group, "cloudStats")
                 h5f.del_node_attr(info_group, "numberOfPartitions")
                 h5f.del_node_attr(info_group, "numberOfSubpartitions")
+
+        # **RNA families removal**
+        if "/rnaFamilies" in h5f and rna_families:
+            logging.getLogger("PPanGGOLiN").info("Erasing previously computed RNA family associations...")
+            h5f.remove_node("/", "rnaFamilies")
+            logging.getLogger("PPanGGOLiN").info("No RNA clusters in pangenome")
+
+        if "/rnaFamiliesInfo" in h5f and rna_families:
+            logging.getLogger("PPanGGOLiN").info(
+                "Erasing the formerly computed rna family representative sequences..."
+            )
+            h5f.remove_node(
+                "/", "rnaFamiliesInfo"
+            )
 
         if "/RGP" in h5f and (gene_families or partition or rgp):
             logging.getLogger("PPanGGOLiN").info("Erasing the formerly computer RGP...")
@@ -932,12 +1136,17 @@ def write_pangenome(
         logging.getLogger("PPanGGOLiN").info(
             "writing the protein coding gene dna sequences in pangenome..."
         )
-        write_gene_sequences(pangenome, h5f, disable_bar=disable_bar)
+        write_gene_intergenic_sequences(pangenome, h5f, disable_bar=disable_bar)
         pangenome.status["geneSequences"] = "Loaded"
 
     if pangenome.status["genesClustered"] == "Computed":
         logging.getLogger("PPanGGOLiN").info(
             "Writing gene families and gene associations in pangenome..."
+        )
+        write_rna_families(pangenome, h5f, force, disable_bar=disable_bar)
+        write_rna_fam_info(pangenome, h5f, force, disable_bar=disable_bar)
+        logging.getLogger("PPanGGOLiN").info(
+            "Writing rna families information in pangenome..."
         )
         write_gene_families(pangenome, h5f, force, disable_bar=disable_bar)
         logging.getLogger("PPanGGOLiN").info(
@@ -995,3 +1204,5 @@ def write_pangenome(
     logging.getLogger("PPanGGOLiN").info(
         f"Done writing the pangenome. It is in file : {filename}"
     )
+
+

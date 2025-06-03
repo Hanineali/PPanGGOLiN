@@ -6,26 +6,28 @@ import os
 import tempfile
 from io import TextIOWrapper
 from multiprocessing import Value
+import subprocess
 from subprocess import Popen, PIPE
 import ast
 from collections import defaultdict
 from typing import Dict, List, Optional, Union, Generator, Tuple
 from pathlib import Path
 import shutil
+import time
 
 # install libraries
 from pyrodigal import GeneFinder, Sequence
 
 # local libraries
-from ppanggolin.genome import Organism, Gene, RNA, Contig
 from ppanggolin.utils import (
     is_compressed,
     read_compressed_or_not,
     check_tools_availability,
 )
+from ppanggolin.genome import Organism, Gene, RNA, Contig, Intergenic
+from ppanggolin.utils import is_compressed, read_compressed_or_not
 
 contig_counter: Value = Value("i", 0)
-
 
 def init_contig_counter(value: Value):
     """Initialize the contig counter for later use"""
@@ -64,7 +66,6 @@ def reverse_complement(seq: str):
         rcseq += complement[i]
     return rcseq
 
-
 def launch_aragorn(
     fna_file: str, org: Organism, contig_to_length: Dict[str, int]
 ) -> defaultdict:
@@ -77,7 +78,7 @@ def launch_aragorn(
     :return: Annotated genes in a list of gene objects
     """
     locustag = org.name
-    cmd = ["aragorn", "-t", "-gcbact", "-l", "-w", fna_file]
+    cmd = ["aragorn", "-t", "-gcbact", "-m", "-l", "-w", fna_file]
     logging.getLogger("PPanGGOLiN").debug(f"aragorn command : {' '.join(cmd)}")
 
     if shutil.which("aragorn") is None:
@@ -91,6 +92,9 @@ def launch_aragorn(
     gene_objs = defaultdict(set)
     c = 0
     contig_name = ""
+    rna_fam = ""
+    rna_type = ""
+    anticodon = None
     while len(file_data) != 0:
         line = file_data.pop()
         if line.startswith(">"):
@@ -102,7 +106,7 @@ def launch_aragorn(
             if start < 1 or stop < 1:
                 # In some case aragorn gives negative coordinates. This case is just ignored.
                 logging.warning(
-                    f"Aragorn gives non valid coordiates for a RNA gene in contig {contig_name}: {line_data}. This RNA is ignored."
+                    f"Aragorn gives non valid coordinates for a RNA gene in contig {contig_name}: {line_data}. This RNA is ignored."
                 )
                 continue
             if (
@@ -117,17 +121,160 @@ def launch_aragorn(
                 continue
 
             c += 1
-            gene = RNA(rna_id=locustag + "_tRNA_" + str(c).zfill(4))
+
+            # Extract RNA type (tRNA or tmRNA) and replace "-" with "_", rna_fam and anticodon
+            if "tRNA" in line_data[1]:
+                rna_fam = line_data[1].replace("-","_")
+                rna_type = rna_fam.split("_")[0]
+                anticodon = line_data[4].strip("()") if len(line_data) > 4 else None
+            elif "tmRNA" in line_data[1]:
+                rna_type = line_data[1]
+                rna_fam= "transfer_messenger_RNA"
+                anticodon = None
+
+
+            gene = RNA(rna_id=locustag + "_" + rna_type + "_" + str(c).zfill(4))
+            # Extract RNA type (tRNA or tmRNA)
+
             gene.fill_annotations(
                 start=start,
                 stop=stop,
                 strand="-" if line_data[2].startswith("c") else "+",
-                gene_type="tRNA",
-                product=line_data[1] + line_data[4],
+                gene_type= rna_type,
+                product=rna_fam,
             )
+            # Store anticodon for tRNA genes (not for tmRNA)
+            gene.anticodon = anticodon
+
             gene_objs[contig_name].add(gene)
     return gene_objs
 
+def launch_trnascan_se(
+        fna_file: str,
+        tmpdir: str,
+        org: Organism,
+        contig_to_length: Dict[str, int],
+        kingdom: str = "bacteria"
+) -> defaultdict:
+    """
+    Launches tRNAscan-SE to annotate tRNAs, replacing Aragorn.
+    Now supports both bacteria & archaea by choosing the correct tRNAscan-SE mode.
+
+    :param fna_file: Path to the uncompressed FASTA.
+    :param tmpdir: Path to temporary directory.
+    :param org: Organism being annotated.
+    :param contig_to_length: Dict mapping contig_name -> contig_length.
+    :param kingdom: "bacteria" or "archaea".
+    :return: A defaultdict(set) mapping contig_name -> set of RNA objects.
+    """
+    locustag = org.name
+
+    # Create a temporary file to generate a unique filename, then delete it so tRNAscan-SE can create it.
+    tmp_out = tempfile.NamedTemporaryFile(mode="w+", dir=tmpdir, delete=False, delete_on_close=True)
+    tmp_out_name = tmp_out.name
+    tmp_out.close()
+    os.unlink(tmp_out_name)  # Ensure the file does not exist
+
+    # choose the correct tRNAscan-SE flag based on kingdom.
+    model_flag = "-B" if kingdom == "bacteria" else ("-A" if kingdom == "archaea" else "-B")
+
+
+    # Build the command using the temporary filename.
+    cmd = ["tRNAscan-SE", model_flag, "-o", tmp_out_name, fna_file]
+    logging.debug(f"tRNAscan-SE command: {' '.join(cmd)}")
+    start_time = time.time()
+
+    try:
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+    except subprocess.TimeoutExpired as err:
+        logging.error("tRNAscan-SE timed out.")
+        raise Exception("tRNAscan-SE timed out.") from err
+    except subprocess.CalledProcessError as err:
+        logging.error(f"tRNAscan-SE failed with error: {err.stderr.decode()}")
+        raise Exception("tRNAscan-SE did not run successfully.") from err
+
+    elapsed_time = time.time() - start_time
+    print(f"tRNAscan-SE finished in {elapsed_time:.2f} seconds with return code {result.returncode}.")
+
+    stderr_text = result.stderr.decode().strip()
+    logging.debug("tRNAscan-SE STDERR: " + stderr_text)
+    if result.returncode != 0:
+        raise Exception("tRNAscan-SE did not run successfully.")
+    if stderr_text.startswith("Error:"):
+        raise Exception(f"tRNAscan-SE failed with error: {stderr_text}")
+
+    # Check the temporary file size to ensure output was produced.
+    try:
+        file_size = os.stat(tmp_out_name).st_size
+    except FileNotFoundError:
+        logging.error("Temporary output file not found; tRNAscan-SE produced no output.")
+        raise Exception("Temporary output file not found; tRNAscan-SE produced no output.")
+    logging.debug(f"Temporary output file size: {file_size} bytes")
+    if file_size == 0:
+        logging.error("Temporary output file is empty; tRNAscan-SE produced no output.")
+        raise Exception("Temporary output file is empty; tRNAscan-SE produced no output.")
+
+    rna_objs = defaultdict(set)
+    c = 0
+
+    with open(tmp_out_name, "r") as infile:
+        for line in infile:
+            # Skip header lines, status messages, and blank lines.
+            if (line.startswith("Sequence") or line.startswith("Name") or
+                    line.startswith("--------") or line.startswith("Status:") or not line.strip()):
+                continue
+
+            line_data = line.split()
+            if len(line_data) < 5:
+                logging.warning(f"Line malformed or too short: {line.strip()}")
+                continue
+
+            contig_name_line = line_data[0]
+            try:
+                start_coord = int(line_data[2])
+                end_coord = int(line_data[3])
+            except ValueError:
+                logging.warning(f"Could not parse coords: {line.strip()}")
+                continue
+
+            if contig_name_line not in contig_to_length:
+                logging.warning(f"Contig '{contig_name_line}' not recognized. Skipping line: {line.strip()}")
+                continue
+            if start_coord < 1 or end_coord < 1:
+                logging.warning(f"Negative coords in line: {line.strip()}")
+                continue
+            if max(start_coord, end_coord) > contig_to_length[contig_name_line]:
+                logging.warning(f"Coords exceed contig length for '{contig_name_line}' in line: {line.strip()}")
+                continue
+
+            c += 1
+            rna_id = f"{locustag}_tRNA_{str(c).zfill(4)}"
+            rna_type = line_data[4]
+            rna_anticodon = line_data[5] if len(line_data) > 5 else "?"
+            strand = "+"
+            if end_coord < start_coord:
+                strand = "-"
+                start_coord, end_coord = end_coord, start_coord
+
+            rna = RNA(rna_id=rna_id)
+            rna.fill_annotations(
+                start=start_coord,
+                stop=end_coord,
+                strand=strand,
+                gene_type="tRNA",
+                product=rna_type,
+            )
+            rna.anticodon = rna_anticodon
+            rna.family = rna_type
+            rna_objs[contig_name_line].add(rna)
+
+            #print(f"Added tRNA: {rna_id} to contig: {contig_name_line}, coords: {start_coord}..{end_coord}, type: {rna_type}")
+    try:
+        os.remove(tmp_out_name)
+    except OSError as e:
+        logging.warning(f"Could not remove temporary file {tmp_out_name}: {e}")
+
+    return rna_objs
 
 def launch_prodigal(
     contig_sequences: Dict[str, str],
@@ -175,7 +322,6 @@ def launch_prodigal(
             gene_counter += 1
             gene_objs[contig_name].add(gene)
     return gene_objs
-
 
 def launch_infernal(
     fna_file: str, org: Organism, tmpdir: str, kingdom: str = "bacteria"
@@ -240,6 +386,9 @@ def launch_infernal(
         if not line.startswith("#"):
             c += 1
             line_data = line.split()
+            rna_type_raw = line_data[0]  # RNA Type
+            contig_name = line_data[2]  # Contig ID
+            #rna_description = " ".join(line_data[18:])  # RNA Description
             strand = line_data[9]
             start, stop = map(
                 int,
@@ -255,11 +404,11 @@ def launch_infernal(
                 stop=stop,
                 strand=strand,
                 gene_type="rRNA",
-                product=" ".join(line_data[17:]),
+                product=rna_type_raw,
             )
-            gene_objs[line_data[2]].add(gene)
-    return gene_objs
+            gene_objs[contig_name].add(gene)
 
+    return gene_objs
 
 def check_sequence_tuple(name: str, sequence: str):
     """
@@ -419,7 +568,12 @@ def syntaxic_annotation(
             contig_name: len(contig_seq)
             for contig_name, contig_seq in contig_sequences.items()
         }
-
+        """
+        for contig_name, genes_from_contig in launch_trnascan_se(
+            fna_file=fasta_file.name, tmpdir=tmpdir, org=org, contig_to_length=contig_to_length, kingdom=kingdom
+        ).items():
+            genes[contig_name].extend(genes_from_contig)
+        """
         for contig_name, genes_from_contig in launch_aragorn(
             fna_file=fasta_file.name, org=org, contig_to_length=contig_to_length
         ).items():
@@ -503,6 +657,190 @@ def get_dna_sequence(contig_seq: str, gene: Union[Gene, RNA]) -> str:
     elif gene.strand == "-":
         return reverse_complement(seq)
 
+def process_contigs(org, genes, contig_sequences, circular_contigs):
+    """
+    Separates gene and intergenic sequence processing for contigs.
+
+    :param org: Organism object containing contigs and genes.
+    :param genes: Dictionary of contig_name -> list of genes.
+    :param contig_sequences: Dictionary of contig_name -> sequence string.
+    :param circular_contigs: List of contigs that are circular.
+    :return: Updated organism object.
+    """
+    for contig_name, gene_list in genes.items():
+        contig = org.get(contig_name)
+        contig.is_circular = True if contig.name in circular_contigs else False
+
+        # Extract genes and intergenic sequences simultaneously
+        process_genes_intergenics_seq(contig, gene_list, contig_sequences[contig.name], org, register_features=True)
+
+    return org
+
+def process_genes_intergenics_seq(contig, features_list, contig_seq, org, register_features: bool = False):
+    """
+    Extract and process all intergenic regions in order, including both borders and internal intergenics
+    taking into consideration if contig is circular.
+
+    :param contig: Contig object.
+    :param features_list: List of genes in the contig.
+    :param contig_seq: DNA sequence of the contig.
+    :param org: Organism object.
+    """
+    # skip empty features_list with no features
+    if not features_list:
+        print(f"Contig '{contig.name}' has no features. Skipping to the next contig.")
+        return
+
+    contig_length = len(contig_seq)
+    is_circular = contig.is_circular
+    first_feature = features_list[0]
+    last_feature = features_list[-1]
+
+    # Store intergenic regions in order
+    intergenic_regions = []
+
+    try:
+        ### 1. Handle Start Border Intergenic
+        if not is_circular and first_feature.start > 1:
+            start, stop = 1, first_feature.start - 1
+            coordinates = [(start,stop)]
+            intergenic_seq = contig_seq[:stop + 1]
+            intergenic_regions.append((
+                 coordinates, None, first_feature, f"|{first_feature.ID}", True,0, intergenic_seq
+            ))
+        elif is_circular and first_feature.start > 1 and last_feature.stop == contig_length:
+        # Special case: circular contig where first gene starts at > 1 and last gene ends at contig_length
+            start, stop = 1, first_feature.start - 1
+            coordinates = [(start, stop)]
+            intergenic_seq = contig_seq[:stop + 1]
+            intergenic_regions.append((
+                coordinates, last_feature, first_feature, f"{last_feature.ID}|{first_feature.ID}", True, 0, intergenic_seq,
+            ))
+
+        ### 2. Handle Internal Intergenics (Between Genes)
+        for i in range(len(features_list)):
+            feature = features_list[i]
+            # Extract gene sequence
+            feature.add_sequence(get_dna_sequence(contig_seq, feature))
+            if register_features:
+                feature.fill_parents(org, contig)
+                contig.add(feature) if isinstance(feature, Gene) else contig.add_rna(feature)
+
+            if i < len(features_list) - 1:
+                next_feature = features_list[i + 1]
+                # Handle Non-Overlapping Intergenic**
+                if feature.stop == next_feature.start or feature.stop + 1 == next_feature.start:
+                    start, stop = feature.stop, next_feature.start
+                    coordinates = [(start, stop)]
+                    intergenic_seq = None
+                    intergenic_regions.append((
+                        coordinates, feature, next_feature, f"{feature.ID} | {next_feature.ID}", False, 0,
+                        intergenic_seq
+                    ))
+
+                elif next_feature.start - feature.stop >= 2:
+                    start, stop = feature.stop + 1, next_feature.start - 1
+                    coordinates = [(start, stop)]
+                    intergenic_seq = contig_seq[start:stop + 1]
+                    intergenic_regions.append((
+                        coordinates, feature, next_feature,f"{feature.ID} | {next_feature.ID}", False, 0, intergenic_seq
+                    ))
+
+                # Handle Overlapping Genes
+                elif feature.stop > next_feature.start:
+                    overlap_length = feature.stop - next_feature.start
+                    start , stop = next_feature.start, feature.stop
+                    coordinates = [(start, stop)]
+                    intergenic_seq = None
+                    intergenic_regions.append((
+                        coordinates, feature, next_feature, f"{feature.ID} | {next_feature.ID}", False, overlap_length, intergenic_seq,
+                    ))
+
+        ### 3. Handle End Border Intergenics
+        if not is_circular and last_feature.stop < contig_length:
+            start, stop = last_feature.stop + 1, contig_length
+            coordinates = [(start, stop)]
+            intergenic_seq = contig_seq[start:]
+            intergenic_regions.append((
+                coordinates, last_feature, None, f"{last_feature.ID}|", True, 0, intergenic_seq
+            ))
+        elif is_circular and last_feature.stop < contig_length and first_feature.start == 1:
+            start, stop = last_feature.stop + 1, contig_length
+            coordinates = [(start, stop)]
+            intergenic_seq = contig_seq[start:]
+            intergenic_regions.append((
+                coordinates, last_feature, first_feature, f"{last_feature.ID}|{first_feature.ID}", True, 0, intergenic_seq
+            ))
+        elif is_circular and last_feature.start < last_feature.stop:
+            if last_feature.stop < contig_length and first_feature.start > 1:  # intergenic on the wrapping region
+                start, stop = last_feature.stop + 1, first_feature.start - 1
+                coordinates = [(start, contig_length), (1, stop)]
+                intergenic_seq = contig_seq[start:] + contig_seq[1: stop + 1]
+                intergenic_regions.append((
+                    coordinates, last_feature, first_feature,
+                    f"{last_feature.ID}|{first_feature.ID}", True, 0, intergenic_seq
+                ))
+            # handle overlap at the wrapping of the circular contig
+        elif is_circular and last_feature.stop > first_feature.start :
+            overlap_length = last_feature.stop - first_feature.start
+            start, stop = first_feature.start, last_feature.stop
+            coordinates = [(start, stop)]
+            intergenic_seq = None
+            intergenic_regions.append((
+                coordinates, last_feature, first_feature,
+                f"{last_feature.ID} | {first_feature.ID}", True, overlap_length, intergenic_seq
+            ))
+
+        ### 4. Create Intergenic Regions in Order
+        for coordinates , source, target, intergenic_id, is_border, offset, intergenic_seq in intergenic_regions:
+            create_intergenic(
+                org=org,
+                contig=contig,
+                coordinates=coordinates,
+                intergenic_id=intergenic_id,
+                is_border=is_border,
+                source=source,
+                target=target,
+                offset=offset,
+                intergenic_seq=intergenic_seq,
+            )
+    except Exception as e:
+        raise Exception(f"Error processing {contig.name} : {e}")
+
+def create_intergenic(org, contig, coordinates, intergenic_id, is_border, source, target, offset, intergenic_seq):
+    """
+    Create and add an intergenic region to the contig, taking into account linear and circular contigs.
+
+    :param org: Organism object.
+    :param contig: Contig object.
+    :param coordinates: coordinates of the intergenic sequence
+    :param intergenic_id: Unique ID for the intergenic region.
+    :param is_border: Boolean indicating if this is a border intergenic region.
+    :param source: Source gene for the intergenic region.
+    :param target: Target gene for the intergenic region.
+    :param offset: Length of the overlap if applicable (0 for true intergenic regions, positive for overlaps).
+    :param intergenic_seq: The intergenic sequence to extract from contig
+    """
+    intergenic_seq = intergenic_seq
+
+    # Create and store the Intergenic object
+    intergenic = Intergenic(intergenic_id)
+    start, stop = coordinates[0][0], coordinates[-1][1]
+    intergenic.fill_annotations(
+        start= start,  # First start position
+        stop= stop,  # Last stop position
+        strand="+",  # Default strand
+        coordinates=coordinates
+    )
+    intergenic.dna = intergenic_seq
+    intergenic.is_border = is_border
+    intergenic.source = source
+    intergenic.target = target
+    intergenic.offset = offset
+    intergenic.fill_parents(org, contig)
+    contig.add_intergenic(intergenic)
+
+    return intergenic
 
 def annotate_organism(
     org_name: str,
@@ -541,7 +879,7 @@ def annotate_organism(
     contig_sequences = get_contigs_from_fasta_file(org, fasta_file)
     if is_compressed(file_name):  # TODO simply copy file with shutil.copyfileobj
         fasta_file = write_tmp_fasta(contig_sequences, tmpdir)
-    if procedure is None:  # prodigal procedure is not force by user
+    if procedure is None:  # prodigal procedure is not forced by user
         max_contig_len = max(len(contig) for contig in org.contigs)
         if max_contig_len < 20000:  # case of short sequence
             use_meta = True
@@ -558,14 +896,60 @@ def annotate_organism(
     )
     genes = overlap_filter(genes, allow_overlap=allow_overlap)
 
-    for contig_name, genes in genes.items():
-        contig = org.get(contig_name)
-        contig.is_circular = True if contig.name in circular_contigs else False
-        for gene in genes:
-            gene.add_sequence(get_dna_sequence(contig_sequences[contig.name], gene))
-            gene.fill_parents(org, contig)
-            if isinstance(gene, Gene):
-                contig.add(gene)
-            elif isinstance(gene, RNA):
-                contig.add_rna(gene)
+    org = process_contigs(org, genes, contig_sequences, circular_contigs)
+
+    #print_intergenic_sequences(org,"GCF_000092665.1_ASM9266v1_genomic")
+    #print_genes_sequences(org,"GCF_000092665.1_ASM9266v1_genomic")
+
     return org
+
+""" The Functions below are used fo debugging """
+
+def print_intergenic_sequences(organism: Organism, target_organism: Optional[str] = None):
+    print(f" DEBUG: Checking intergenic sequences for organism: {organism.name}")
+    print(f"\n ORGANISM: {organism.name} - Intergenic Regions")
+    print("=" * 80)
+
+    for contig in organism.contigs:
+        print(f"\n Contig: {contig.name} | Circular: {contig.is_circular}")
+
+        # Check if contig has intergenic sequences
+        if not hasattr(contig, "intergenics"):
+            print(f" DEBUG: Contig `{contig.name}` has no `intergenics` attribute.")
+            continue
+
+        if not contig.intergenics:
+            print("  No intergenic regions found in this contig.")
+            continue
+
+        # Print intergenic details
+        for intergenic in contig.intergenics:
+            print(f"    Intergenic ID: {getattr(intergenic, 'ID', 'N/A')}")
+            print(f"      - Coordinates: {getattr(intergenic, 'coordinates', 'N/A')}")
+            print(f"      - Sequence Length: {len(getattr(intergenic, 'dna', '')) if intergenic.dna else 'N/A'}")
+            print(f"      - Border Intergenic: {getattr(intergenic, 'is_border', 'N/A')}")
+            print(f"      - Sequence: {intergenic.dna[:50] if intergenic.dna else 'N/A'}...")
+
+    print("=" * 80)
+
+def print_genes_sequences(organism: Organism, target_organism: Optional[str] = None):
+    """
+    Print all extracted intergenic sequences for a specific organism.
+
+    :param organism: Organism object containing contigs and intergenic regions.
+    :param target_organism: The organism ID for which intergenic sequences should be printed.
+    """
+    print(f"\n===== genes for Organism: {target_organism} =====")
+
+    for contig in organism.contigs:
+        print(f"\n Contig: {contig.name} | Circular: {contig.is_circular}")
+        all_features = sorted(list(contig.genes) + list(contig.RNAs), key=lambda x: x.start)
+
+        print(f"{len(all_features)}")
+
+        for gene in all_features:  # Iterate through intergenic regions
+            print(f"  Gene ID: {gene.ID}")
+            print(f"   - Coordinates: {gene.coordinates}")
+
+
+        print("\n" + "=" * 50)

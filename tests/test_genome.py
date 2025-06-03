@@ -4,7 +4,7 @@ import pytest
 from typing import Generator, Tuple
 import gmpy2
 
-from ppanggolin.genome import Feature, Gene, RNA, Contig, Organism
+from ppanggolin.genome import Feature, Gene, RNA, Contig, Organism, Intergenic
 from ppanggolin.geneFamily import GeneFamily
 from ppanggolin.region import Region
 
@@ -629,3 +629,49 @@ class TestOrganism:
         index = {fam1: 1, fam2: 2}
         organism.mk_bitarray(index)
         assert organism.bitarray == gmpy2.xmpz(6)
+
+class TestIntergenic:
+    """Tests Intergenic class"""
+
+    def test_intergenic_initialization(self):
+        intergenic = Intergenic("intergenic_1")
+        assert intergenic.ID == "intergenic_1"
+        assert intergenic.is_border is False
+        assert intergenic.source is None
+        assert intergenic.target is None
+        assert intergenic.offset is None
+        assert intergenic.edge is None
+
+    def test_intergenic_is_border(self):
+        intergenic = Intergenic("intergenic_2", is_border=True)
+        assert intergenic.is_border is True
+
+    def test_intergenic_neighbors_property(self):
+        """Test the neighbors property of the Intergenic class."""
+        # Create Gene objects
+        gene1 = Gene("gene_1")
+        gene2 = Gene("gene_2")
+
+        # Create Intergenic object and assign neighbors
+        intergenic = Intergenic("intergenic_3")
+        intergenic.source = gene1
+        intergenic.target = gene2
+
+        # Verify that neighbors returns the correct tuple
+        assert intergenic.neighbors == (gene1, gene2), "The neighbors property does not return the correct tuple."
+
+        # Ensure that the order is maintained (source first, target second)
+        assert intergenic.neighbors[0] == gene1, "The source gene is not correctly set as the first element."
+        assert intergenic.neighbors[1] == gene2, "The target gene is not correctly set as the second element."
+
+        assert intergenic.neighbors == (gene1, gene2), "The neighbors property did not return the correct genes."
+
+
+    def test_intergenic_offset_edge_assignment(self):
+        intergenic = Intergenic("intergenic_6")
+
+        intergenic.offset = 10
+        intergenic.edge = 5
+
+        assert intergenic.offset == 10
+        assert intergenic.edge == 5

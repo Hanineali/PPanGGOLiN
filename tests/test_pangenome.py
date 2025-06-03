@@ -4,7 +4,7 @@ import pytest
 from random import choices, randint
 from typing import Generator, Set, Tuple, Union
 
-from ppanggolin.genome import Gene, Organism, Contig
+from ppanggolin.genome import Gene, Organism, Contig, Intergenic
 from ppanggolin.pangenome import Pangenome
 from ppanggolin.edge import Edge
 from ppanggolin.geneFamily import GeneFamily
@@ -906,3 +906,85 @@ class TestPangenomeMetadata(TestPangenome):
                 for metadata in elem.metadata:
                     assert isinstance(metadata, Metadata)
                     assert metadata.source == "source"
+
+class TestPangenomeIntergenic(TestPangenome):
+    @pytest.fixture
+    def test_intergenics_generator(self):
+        """Test the intergenics generator."""
+        intergenic_ids = [intergenic.ID for intergenic in self.pangenome.intergenics]
+        expected_ids = ["intergenic_1", "intergenic_2", "intergenic_3"]
+
+        assert set(intergenic_ids) == set(
+            expected_ids), "Intergenics generator does not return the expected intergenic regions."
+
+
+    def test_pangenome_contig_intergenics(self):
+        # Create a Pangenome
+        pangenome = Pangenome()
+
+        # Create an organism
+        organism = Organism(name="TestOrganism")
+        pangenome.add_organism(organism)
+
+        # Create a contig
+        contig = Contig(identifier=1, name="TestContig",is_circular=False)
+        organism.add(contig)
+
+        # Create and add intergenic regions
+
+        # Create and add intergenic regions
+        intergenic1 = Intergenic("intergenic_1", is_border=True)
+        intergenic1.source = "gene_1"
+        intergenic1.target = "gene_2"
+
+        intergenic2 = Intergenic("intergenic_2", is_border=False)
+        intergenic2.source = "gene_2"
+        intergenic2.target = "gene_3"
+
+        intergenic3 = Intergenic("intergenic_3", is_border=False)
+        intergenic3.source = "gene_3"
+        intergenic3.target = "gene_4"
+
+        contig.add_intergenic(intergenic1)
+        contig.add_intergenic(intergenic2)
+        contig.add_intergenic(intergenic3)
+
+        # Verify counts
+        assert contig.number_of_intergenics == 3, "Contig intergenic count is incorrect."
+        assert pangenome.number_of_intergenics == 3, "Pangenome intergenic count is incorrect."
+
+    def setup_pangenome_with_intergenics(self):
+        pangenome = Pangenome()
+
+        # Create an organism
+        organism = Organism(name="TestOrganism")
+        pangenome.add_organism(organism)
+
+        # Create a contig
+        contig = Contig(identifier=1, name="TestContig", is_circular=False)
+        organism.add(contig)
+
+        # Create and add intergenic regions
+        intergenic1 = Intergenic("intergenic_1", is_border=True)
+        intergenic1.source = "gene_1"
+        intergenic1.target = "gene_2"
+
+        intergenic2 = Intergenic("intergenic_2", is_border=False)
+        intergenic2.source = "gene_2"
+        intergenic2.target = "gene_3"
+
+        intergenic3 = Intergenic("intergenic_3", is_border=False)
+        intergenic3.source = "gene_3"
+        intergenic3.target = "gene_4"
+
+        # Add intergenics to the contig
+        contig.add_intergenic(intergenic1)
+        contig.add_intergenic(intergenic2)
+        contig.add_intergenic(intergenic3)
+
+        return pangenome
+
+    def test_number_of_intergenics(self):
+        """Test the number_of_intergenics property."""
+        pangenome = self.setup_pangenome_with_intergenics()
+        assert pangenome.number_of_intergenics == 3, "The number_of_intergenics property does not return the correct count."
