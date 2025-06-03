@@ -24,10 +24,9 @@ from typing import Optional
 from ppanggolin.annotate.synta import (
     annotate_organism,
     get_contigs_from_fasta_file,
-    get_dna_sequence,
     init_contig_counter,
     contig_counter,
-    process_genes_and_intergenics_gff_gbff
+    process_genes_intergenics_seq
 )
 from ppanggolin.pangenome import Pangenome
 from ppanggolin.genome import Organism, Gene, RNA, Contig
@@ -850,7 +849,7 @@ def read_org_gbff(
             list(contig.genes) + list(contig.RNAs), key=lambda x: x.start
         )
         #print(f"Checking features for contig {contig.name}: {len(all_features)} genes found")
-        process_genes_and_intergenics_gff_gbff(contig, all_features, contig_sequences[contig.name], organism)
+        process_genes_intergenics_seq(contig, all_features, contig_sequences[contig.name], organism, register_features = False)
         #print_intergenic_sequences(organism,"GCF_000026905.1")
         #print_genes_sequences(organism,"GCF_000026905.1")
 
@@ -1266,7 +1265,7 @@ def read_org_gff(
             all_features = sorted(
                 list(contig.genes) + list(contig.RNAs), key=lambda x: x.start
             )
-            process_genes_and_intergenics_gff_gbff(contig, all_features, contig_sequences[contig.name], org)
+            process_genes_intergenics_seq(contig, all_features, contig_sequences[contig.name], org, register_features=False)
 
     # add metadata to genome and contigs
     if contig_name_to_region_info:
