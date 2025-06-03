@@ -22,6 +22,7 @@ import plotly.graph_objs as go
 
 # local libraries
 from ppanggolin.pangenome import Pangenome
+from ppanggolin.rnaFamily import rnaFamily
 from ppanggolin.utils import mk_outdir
 from ppanggolin.formats import check_pangenome_info, write_pangenome, erase_pangenome
 
@@ -360,6 +361,9 @@ def write_nem_input_files(
             neighbor_number = 0
             sum_dist_score = 0
             for edge in fam.edges:  # iter on the family's edges.
+                if isinstance(edge.source, rnaFamily) or isinstance(edge.target, rnaFamily):
+                    print(f'coucououcou {type(edge.source)}___{edge.target}')
+                    continue
                 coverage = sum(
                     [
                         len(gene_list)
