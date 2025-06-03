@@ -39,6 +39,7 @@ from ppanggolin.formats.readBinaries import (
     write_intergenic_sequences_from_file,
     write_rna_sequences_from_pangenome_file,
     write_rna_product_from_pangenome_file,
+    write_rnas_sequences_from_file
 )
 
 module_regex = re.compile(r"^module_\d+")  # \d == [0-9]
@@ -158,15 +159,15 @@ def most_central_element(distance_matrix: np.ndarray) -> int:
     central_index = int(np.argmin(total_distances))
     return central_index
 
-def run_mafft_distout(input_fasta: str,output:str) -> bool:
+def run_mafft_distout(input_fasta: str,output_dist:str) -> bool:
     """
     Runs MAFFT with --distout on input_fasta, writing the distance matrix to output_dist.
     Returns True if successful, False otherwise.
     """
     cmd = ["mafft", "--distout", input_fasta]
-    logging.info(f"Running MAFFT on '{input_fasta}' to generate '{output}'.")
+    logging.info(f"Running MAFFT on '{input_fasta}' to generate '{output_dist}'.")
     try:
-        with open(output, "w") as dist_file:
+        with open(output_dist, "w") as dist_file:
             subprocess.run(
                 cmd, stdout=dist_file, stderr=subprocess.PIPE,
                 timeout=300, check=True
