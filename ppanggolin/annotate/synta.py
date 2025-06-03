@@ -706,13 +706,22 @@ def process_genes_intergenics_seq(contig, features_list, contig_seq, org, regist
             coordinates = [(start,stop)]
             intergenic_seq = contig_seq[:stop + 1]
             intergenic_regions.append((
-                 coordinates, None, first_feature, f"|{first_feature.ID}", True,0, intergenic_seq
+                 coordinates, None, first_feature, f"|{first_feature.ID}", True, 0, intergenic_seq
             ))
         elif is_circular and first_feature.start > 1 and last_feature.stop == contig_length:
         # Special case: circular contig where first gene starts at > 1 and last gene ends at contig_length
             start, stop = 1, first_feature.start - 1
             coordinates = [(start, stop)]
             intergenic_seq = contig_seq[:stop + 1]
+            intergenic_regions.append((
+                coordinates, last_feature, first_feature, f"{last_feature.ID}|{first_feature.ID}", True, 0, intergenic_seq,
+            ))
+
+        elif is_circular and first_feature.start == 1 and last_feature.stop == contig_length:
+        # Special case: circular contig where first gene starts at 1 and last gene ends at contig_length
+            start, stop = last_feature.stop , 1
+            coordinates = [(start, stop)]
+            intergenic_seq = None
             intergenic_regions.append((
                 coordinates, last_feature, first_feature, f"{last_feature.ID}|{first_feature.ID}", True, 0, intergenic_seq,
             ))
