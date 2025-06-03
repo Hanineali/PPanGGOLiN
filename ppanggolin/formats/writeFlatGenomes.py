@@ -22,6 +22,7 @@ from ppanggolin.geneFamily import GeneFamily
 from ppanggolin.genome import Organism, Gene, RNA
 from ppanggolin.region import Region, Module
 from ppanggolin.pangenome import Pangenome
+from ppanggolin.rnaFamily import rnaFamily
 from ppanggolin.utils import (
     write_compressed_or_not,
     mk_outdir,
@@ -45,6 +46,8 @@ def count_neighbors_partitions(gene_family: GeneFamily):
     nb_cloud = 0
 
     for neighbor in gene_family.neighbors:
+        if isinstance(neighbor, rnaFamily):
+            continue
         if neighbor.named_partition == "persistent":
             nb_pers += 1
         elif neighbor.named_partition == "shell":
