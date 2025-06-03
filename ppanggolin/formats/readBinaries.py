@@ -1180,14 +1180,17 @@ def read_graph(pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False
             "if the annotations and the gene families have not been loaded."
         )
     for row in tqdm(
-        read_chunks(table, chunk=20000),
-        total=table.nrows,
-        unit="contig adjacency",
-        disable=disable_bar,
+            read_chunks(table, chunk=20000),
+            total=table.nrows,
+            unit="contig features adjacency",
+            disable=disable_bar,
     ):
-        source = pangenome.get_gene(row["geneSource"].decode())
-        target = pangenome.get_gene(row["geneTarget"].decode())
-        pangenome.add_edge(source, target)
+        source = pangenome.get_feature(row["featureSource"].decode())
+        target = pangenome.get_feature(row["featureTarget"].decode())
+        intergenics_list = row["intergenic_chain"].decode().split(",")
+        intergenic_chain = [pangenome.get_feature(elem) for elem in intergenics_list]
+        feat_edge = pangenome.add_edge(source, target)
+        feat_edge.add_intergenic(tuple(intergenic_chain))
     pangenome.status["neighborsGraph"] = "Loaded"
 
 
