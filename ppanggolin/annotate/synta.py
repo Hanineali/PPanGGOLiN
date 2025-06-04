@@ -704,7 +704,7 @@ def process_genes_intergenics_seq(contig, features_list, contig_seq, org, regist
         if not is_circular and first_feature.start > 1:
             start, stop = 1, first_feature.start - 1
             coordinates = [(start,stop)]
-            intergenic_seq = contig_seq[:stop + 1]
+            intergenic_seq = contig_seq[:stop]
             intergenic_regions.append((
                  coordinates, None, first_feature, f"|{first_feature.ID}", True, 0, intergenic_seq
             ))
@@ -712,16 +712,7 @@ def process_genes_intergenics_seq(contig, features_list, contig_seq, org, regist
         # Special case: circular contig where first gene starts at > 1 and last gene ends at contig_length
             start, stop = 1, first_feature.start - 1
             coordinates = [(start, stop)]
-            intergenic_seq = contig_seq[:stop + 1]
-            intergenic_regions.append((
-                coordinates, last_feature, first_feature, f"{last_feature.ID}|{first_feature.ID}", True, 0, intergenic_seq,
-            ))
-
-        elif is_circular and first_feature.start == 1 and last_feature.stop == contig_length:
-        # Special case: circular contig where first gene starts at 1 and last gene ends at contig_length
-            start, stop = last_feature.stop , 1
-            coordinates = [(start, stop)]
-            intergenic_seq = None
+            intergenic_seq = contig_seq[:stop]
             intergenic_regions.append((
                 coordinates, last_feature, first_feature, f"{last_feature.ID}|{first_feature.ID}", True, 0, intergenic_seq,
             ))
@@ -738,7 +729,15 @@ def process_genes_intergenics_seq(contig, features_list, contig_seq, org, regist
             if i < len(features_list) - 1:
                 next_feature = features_list[i + 1]
                 # Handle Non-Overlapping Intergenic**
-                if feature.stop == next_feature.start or feature.stop + 1 == next_feature.start:
+                if feature.stop == next_feature.start:
+                    start, stop = feature.stop, next_feature.start
+                    coordinates = [(start, stop)]
+                    intergenic_seq = None
+                    intergenic_regions.append((
+                        coordinates, feature, next_feature, f"{feature.ID} | {next_feature.ID}", False, 1,
+                        intergenic_seq
+                    ))
+                elif feature.stop + 1 == next_feature.start:
                     start, stop = feature.stop, next_feature.start
                     coordinates = [(start, stop)]
                     intergenic_seq = None
@@ -750,14 +749,23 @@ def process_genes_intergenics_seq(contig, features_list, contig_seq, org, regist
                 elif next_feature.start - feature.stop >= 2:
                     start, stop = feature.stop + 1, next_feature.start - 1
                     coordinates = [(start, stop)]
-                    intergenic_seq = contig_seq[start:stop + 1]
+                    intergenic_seq = contig_seq[start -1 :stop]
+                    # ---- PRINT FOR DEBUGGING ----
+                    seq_up_end = get_dna_sequence(contig_seq, feature)[-10:]
+                    seq_down_start = get_dna_sequence(contig_seq, next_feature)[:10]
+                    print(
+                        f"INTERGENIC ( {feature.ID} → {next_feature.ID} ):\n"
+                        f"  Upstream gene {feature.ID} end (last 10 nt):  {seq_up_end}\n"
+                        f"  Downstream gene {next_feature.ID} start (first 10 nt): {seq_down_start}\n"
+                        f"  Intergenic seq [{start-1}–{stop}]: {intergenic_seq}\n"
+                    )
                     intergenic_regions.append((
                         coordinates, feature, next_feature,f"{feature.ID} | {next_feature.ID}", False, 0, intergenic_seq
                     ))
 
                 # Handle Overlapping Genes
                 elif feature.stop > next_feature.start:
-                    overlap_length = feature.stop - next_feature.start
+                    overlap_length = feature.stop - next_feature.start + 1
                     start , stop = next_feature.start, feature.stop
                     coordinates = [(start, stop)]
                     intergenic_seq = None
@@ -769,29 +777,38 @@ def process_genes_intergenics_seq(contig, features_list, contig_seq, org, regist
         if not is_circular and last_feature.stop < contig_length:
             start, stop = last_feature.stop + 1, contig_length
             coordinates = [(start, stop)]
-            intergenic_seq = contig_seq[start:]
+            intergenic_seq = contig_seq[start - 1:]
             intergenic_regions.append((
                 coordinates, last_feature, None, f"{last_feature.ID}|", True, 0, intergenic_seq
             ))
-        elif is_circular and last_feature.stop < contig_length and first_feature.start == 1:
-            start, stop = last_feature.stop + 1, contig_length
-            coordinates = [(start, stop)]
-            intergenic_seq = contig_seq[start:]
-            intergenic_regions.append((
-                coordinates, last_feature, first_feature, f"{last_feature.ID}|{first_feature.ID}", True, 0, intergenic_seq
-            ))
-        elif is_circular and last_feature.start < last_feature.stop:
-            if last_feature.stop < contig_length and first_feature.start > 1:  # intergenic on the wrapping region
+        elif is_circular and first_feature.start == 1 :
+            if last_feature.stop == contig_length:
+                # Special case: circular contig where first gene starts at 1 and last gene ends at contig_length
+                start, stop = last_feature.stop, 1
+                coordinates = [(start, stop)]
+                intergenic_seq = None
+                intergenic_regions.append((
+                    coordinates, last_feature, first_feature, f"{last_feature.ID}|{first_feature.ID}", True, 0,
+                    intergenic_seq,
+                ))
+            elif last_feature.stop < contig_length :
+                start, stop = last_feature.stop + 1, contig_length
+                coordinates = [(start, stop)]
+                intergenic_seq = contig_seq[start - 1:]
+                intergenic_regions.append((
+                    coordinates, last_feature, first_feature, f"{last_feature.ID}|{first_feature.ID}", True, 0, intergenic_seq
+                ))
+        elif is_circular and last_feature.stop < contig_length and first_feature.start > 1 :  # intergenic on the wrapping region
                 start, stop = last_feature.stop + 1, first_feature.start - 1
                 coordinates = [(start, contig_length), (1, stop)]
-                intergenic_seq = contig_seq[start:] + contig_seq[1: stop + 1]
+                intergenic_seq = contig_seq[start - 1:] + contig_seq[1: stop]
                 intergenic_regions.append((
                     coordinates, last_feature, first_feature,
                     f"{last_feature.ID}|{first_feature.ID}", True, 0, intergenic_seq
                 ))
             # handle overlap at the wrapping of the circular contig
         elif is_circular and last_feature.stop > first_feature.start :
-            overlap_length = last_feature.stop - first_feature.start
+            overlap_length = last_feature.stop - first_feature.start + 1
             start, stop = first_feature.start, last_feature.stop
             coordinates = [(start, stop)]
             intergenic_seq = None
