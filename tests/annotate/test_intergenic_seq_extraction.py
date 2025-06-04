@@ -1,3 +1,6 @@
+""
+from pickle import FALSE
+
 import pytest
 from unittest.mock import MagicMock, patch
 from io import StringIO
@@ -29,6 +32,12 @@ from ppanggolin.annotate.synta import process_genes_intergenics_seq
 
         # CASE 6: Empty Contig (No Genes)
         (False, [], []),
+
+        # CASE 7: Circular Contig with Genes touching (No intergenic Region)
+        (True, [(1, 25), (26, 80)], [((25, 26), 'gene_1 | gene_2'), ((80, 1), 'gene_2|gene_1')]),
+
+        # CASE 8: Border end Intergenic
+        (False, [(1, 55)], [((56,80), 'gene_1|')]),
     ],
 )
 
@@ -89,3 +98,4 @@ def test_process_genes_intergenics_seq(mock_get_dna_sequence, mock_create_interg
     print(f" Actual: {actual_calls}")
 
     assert actual_calls == expected_calls, f"Mismatch in expected intergenic regions! Expected: {expected_calls}, Got: {actual_calls}"
+    """"""""
