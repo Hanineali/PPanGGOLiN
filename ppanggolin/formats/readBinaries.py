@@ -308,6 +308,34 @@ def read_genedata(h5f: tables.File) -> Dict[int, Genedata]:
 
     return genedata_id2genedata
 
+def read_intergenicdata(h5f: tables.File) -> dict[Any, Intergenicdata]:
+    """
+    Reads the intergenicdata table and returns an intergenicdata_id2intergenicdata dictionary
+    """
+
+    table = h5f.root.annotations.intergenicdata
+    intergenicdata_id2intergenicdata = {}
+    for row in read_chunks(table, chunk=20000):
+        start = int(row["start"])
+        stop = int(row["stop"])
+        coordinates = [(start, stop)]
+
+        intergenicdata = Intergenicdata(
+            source_id=row["source_id"].decode(),
+            target_id= row["target_id"].decode(),
+            start=start,
+            stop=stop,
+            edge=row["edge"].decode(),
+            offset = row["offset"].decode(),
+            neighbors=row["neighbors"].decode(),
+            coordinates=coordinates,
+        )
+
+        intergenicdata_id = row["intergenicdata_id"]
+        intergenicdata_id2intergenicdata[intergenicdata_id] = intergenicdata
+
+    return intergenicdata_id2intergenicdata
+
 
 def read_join_coordinates(h5f: tables.File) -> Dict[str, List[Tuple[int, int]]]:
     """
@@ -1261,6 +1289,66 @@ def read_gene_families_info(
     if h5f.root.status._v_attrs.geneFamilySequences:
         pangenome.status["geneFamilySequences"] = "Loaded"
 
+def read_rna_families(
+    pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False
+):
+    """
+    Read rna families in pangenome hdf5 file to add in pangenome object
+
+    :param pangenome: Pangenome object without rna families
+    :param h5f: Pangenome HDF5 file with rna families information
+    :param disable_bar: Disable the progress bar
+    """
+    table = h5f.root.rnaFamilies
+
+    link = (
+        True
+        if pangenome.status["genomesAnnotated"] in ["Computed", "Loaded"]
+        else False
+    )
+
+    for row in tqdm(
+        read_chunks(table, chunk=20000),
+        total=table.nrows,
+        unit="rna family",
+        disable=disable_bar,
+    ):
+        try:
+            fam = pangenome.get_rna_family(row["rnaFam"].decode())
+        except KeyError:
+            fam = rnaFamily(
+                family_id=pangenome.max_rnaFam_id, name=row["rnaFam"].decode()
+            )
+            pangenome.add_rna_family(fam)
+        if link:  # linking if we have loaded the annotations
+            rna_obj = pangenome.get_rna(row["rna"].decode())
+        else:  # else, no
+            rna_obj = RNA(row["rna"].decode())
+        fam.add(rna_obj)
+    logging.getLogger("PPanGGOLiN").info("RNA families info loaded")
+
+
+def read_rna_families_info(
+    pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False
+):
+    """
+    Read information about rna families in pangenome hdf5 file to add in pangenome object
+
+    :param pangenome: Pangenome object without rna families information
+    :param h5f: Pangenome HDF5 file with rna families information
+    :param disable_bar: Disable the progress bar
+    """
+    table = h5f.root.rnaFamiliesInfo
+
+    for row in tqdm(
+        read_chunks(table, chunk=20000),
+        total=table.nrows,
+        unit="rna family",
+        disable=disable_bar,
+    ):
+        fam = pangenome.get_rna_family(row["name"].decode())
+        fam.add_sequence(row["sequence"].decode())
+
 
 def read_gene_sequences(
     pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False
@@ -1289,6 +1377,63 @@ def read_gene_sequences(
         gene = pangenome.get_gene(row["gene"].decode())
         gene.add_sequence(seqid2seq[row["seqid"]])
     pangenome.status["geneSequences"] = "Loaded"
+
+def read_rna_sequences(
+    pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False
+):
+    """
+    Read rna sequences in pangenome hdf5 file to add in pangenome object
+
+    :param pangenome: Pangenome object without rna sequence associated to rna
+    :param h5f: Pangenome HDF5 file with rna sequence associate to rna
+    :param disable_bar: Disable the progress bar
+    """
+    if pangenome.status["genomesAnnotated"] not in ["Computed", "Loaded"]:
+        raise Exception(
+            "It's not possible to read the pangenome  dna sequences "
+            "if the annotations have not been loaded."
+        )
+    table = h5f.root.annotations.rnaSequences
+
+    seqid2seq = read_sequences(h5f)
+    for row in tqdm(
+        read_chunks(table, chunk=20000),
+        total=table.nrows,
+        unit="rna",
+        disable=disable_bar,
+    ):
+        rna = pangenome.get_rna(row["rna"].decode())
+        rna.add_sequence(seqid2seq[row["seqid"]])
+    logging.getLogger("PPanGGOLiN").info("RNA sequences are loaded.")
+
+
+def read_intergenic_sequences(
+    pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False
+):
+    """
+    Read intergenic sequences in pangenome hdf5 file to add in pangenome object
+
+    :param pangenome: Pangenome object without gene sequence associate to gene
+    :param h5f: Pangenome HDF5 file with gene sequence associate to gene
+    :param disable_bar: Disable the progress bar
+    """
+    if pangenome.status["genomesAnnotated"] not in ["Computed", "Loaded"]:
+        raise Exception(
+            "It's not possible to read the pangenome  dna sequences "
+            "if the annotations have not been loaded."
+        )
+    table = h5f.root.annotations.intergenicSequences
+
+    seqid2seq = read_sequences(h5f)
+    for row in tqdm(
+        read_chunks(table, chunk=20000),
+        total=table.nrows,
+        unit="intergenic",
+        disable=disable_bar,
+    ):
+        intergenic = pangenome.get_intergenic(row["intergenic"].decode())
+        intergenic.add_sequence(seqid2seq[row["seqid"]])
+    logging.getLogger("PPanGGOLiN").info("Intergenic sequences are loaded.")
 
 
 def read_rgp(pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False):
@@ -1547,6 +1692,59 @@ def read_rnas(
             contig.add_rna(rna)
 
 
+def read_intergenics(
+    pangenome: Pangenome,
+    table: tables.Table,
+    intergenicdata_dict: Dict[int, Intergenicdata],
+    link: bool = True,
+    chunk_size: int = 20000,
+    disable_bar: bool = False,
+):
+    """Read intergenics in pangenome file to add them to the pangenome object
+
+        :param pangenome: Pangenome object
+        :param table: intergenics table
+        :param intergenicdata_dict: Dictionary to link intergenicdata with intergene
+        :param link: Allow to link intergenic to organism and contig
+        :param chunk_size: Size of the chunk reading
+        :param disable_bar: Disable progress bar
+        """
+    for row in tqdm(
+            read_chunks(table, chunk=chunk_size),
+            total=table.nrows,
+            unit="intergenic",
+            disable=disable_bar,
+    ):
+        intergenic = Intergenic(row["ID"].decode(), row["is_border"].decode())
+        intergenicdata = intergenicdata_dict[row["intergenicdata_id"]]
+        if intergenicdata.start > intergenicdata.stop:
+            logging.warning(
+                f"Wrong coordinates in intergenic: Start ({intergenicdata.start}) should not be greater than stop ({intergenicdata.stop}). This intergenic is ignored."
+            )
+            continue
+        if intergenicdata.start < 1 or intergenicdata.stop < 1:
+            logging.warning(
+                f"Wrong coordinates in intergenic: Start ({intergenicdata.start}) and stop ({intergenicdata.stop}) should be greater than 0.  This intergenic is ignored."
+            )
+            continue
+
+        intergenic.fill_annotations(
+            start=intergenicdata.start,
+            stop=intergenicdata.stop,
+            coordinates= intergenicdata.coordinates,
+            strand = "+"
+        )
+        intergenic.source.ID = intergenicdata.source_id
+        intergenic.target.ID = intergenicdata.target_id
+        intergenic.edge = intergenicdata.edge
+        intergenic.offset = intergenicdata.offset
+
+        if link:
+            contig = pangenome.get_contig(int(row["contig"]))
+            intergenic.fill_parents(contig.organism, contig)
+            contig.add_intergenic(intergenic)
+
+
 def read_annotation(
     pangenome: Pangenome,
     h5f: tables.File,
@@ -1554,6 +1752,7 @@ def read_annotation(
     load_contigs: bool = True,
     load_genes: bool = True,
     load_rnas: bool = True,
+    load_intergenics = True,
     chunk_size: int = 20000,
     disable_bar: bool = False,
 ):
@@ -1566,6 +1765,7 @@ def read_annotation(
     :param load_contigs: Flag to load contigs
     :param load_genes: Flag to load genes
     :param load_rnas: Flag to load RNAs
+    :param load_intergenics: Flag to load intergenics
     :param chunk_size: Size of chunks reading
     :param disable_bar: Disable the progress bar
     """
@@ -1602,6 +1802,16 @@ def read_annotation(
             pangenome,
             annotations.RNAs,
             read_genedata(h5f) if genedata_dict is None else genedata_dict,
+            all([load_organisms, load_contigs]),
+            chunk_size=chunk_size,
+            disable_bar=disable_bar,
+        )
+    if load_intergenics:
+        intergenicdata_dict = read_intergenicdata(h5f)
+        read_intergenics(
+            pangenome,
+            annotations.intergenics,
+            intergenicdata_dict,
             all([load_organisms, load_contigs]),
             chunk_size=chunk_size,
             disable_bar=disable_bar,
@@ -1808,10 +2018,13 @@ def read_pangenome(
     pangenome,
     annotation: bool = False,
     gene_families: bool = False,
+    rna_families:bool = False,
     graph: bool = False,
     rgp: bool = False,
     spots: bool = False,
     gene_sequences: bool = False,
+    rna_sequences: bool = False,
+    intergenic_sequences: bool = False,
     modules: bool = False,
     metadata: bool = False,
     metatypes: Set[str] = None,
@@ -1825,10 +2038,13 @@ def read_pangenome(
     :param pangenome: Pangenome object without some information
     :param annotation: get annotation
     :param gene_families: get gene families
+    :param rna_families: get rna families
     :param graph: get graph
     :param rgp: get RGP
     :param spots: get hotspot
     :param gene_sequences: get gene sequences
+    :param rna_sequences: get rna sequences
+    :param intergenic_sequences: get intergenic sequences
     :param modules: get modules
     :param metadata: get metadata
     :param metatypes: metatypes of the metadata to get
@@ -1865,6 +2081,28 @@ def read_pangenome(
                 f"The pangenome in file '{filename}' does not have gene sequences, "
                 f"or has been improperly filled"
             )
+    if rna_sequences:
+        if h5f.root.status._v_attrs.rnaSequences:
+            logging.getLogger("PPanGGOLiN").info(
+                "Reading pangenome rna dna sequences..."
+            )
+            read_rna_sequences(pangenome, h5f, disable_bar=disable_bar)
+        else:
+            raise Exception(
+                f"The pangenome in file '{filename}' does not have rna sequences, "
+                f"or has been improperly filled"
+            )
+    if intergenic_sequences:
+        if h5f.root.status._v_attrs.intergenicSequences:
+            logging.getLogger("PPanGGOLiN").info(
+                "Reading pangenome intergenic dna sequences..."
+            )
+            read_intergenic_sequences(pangenome, h5f, disable_bar=disable_bar)
+        else:
+            raise Exception(
+                f"The pangenome in file '{filename}' does not have intergenic sequences, "
+                f"or has been improperly filled"
+            )
 
     if gene_families:
         if h5f.root.status._v_attrs.genesClustered:
@@ -1874,6 +2112,17 @@ def read_pangenome(
         else:
             raise Exception(
                 f"The pangenome in file '{filename}' does not have gene families, or has been improperly filled"
+            )
+
+    if rna_families:
+        if h5f.root.status._v_attrs.rnasClustered:
+            logging.getLogger("PPanGGOLiN").info("Reading pangenome rna families...")
+            read_rna_families(pangenome, h5f, disable_bar=disable_bar)
+            read_rna_families_info(pangenome, h5f, disable_bar=disable_bar)
+
+        else:
+            raise Exception(
+                f"The pangenome in file '{filename}' does not have rna families, or has been improperly filled"
             )
 
     if graph:
@@ -1946,11 +2195,13 @@ def get_need_info(
     pangenome,
     need_annotations: bool = False,
     need_families: bool = False,
+    need_rna_families: bool = False,
     need_graph: bool = False,
     need_partitions: bool = False,
     need_rgp: bool = False,
     need_spots: bool = False,
     need_gene_sequences: bool = False,
+    need_rna_sequences:bool = False,
     need_intergenic_sequences: bool = False,
     need_modules: bool = False,
     need_metadata: bool = False,
@@ -1960,10 +2211,12 @@ def get_need_info(
     need_info = {
         "annotation": False,
         "gene_families": False,
+        "rna_families": False,
         "graph": False,
         "rgp": False,
         "spots": False,
         "gene_sequences": False,
+        "rna_sequences": False,
         "intergenic_sequences": False,
         "modules": False,
         "metadata": False,
@@ -1985,6 +2238,13 @@ def get_need_info(
         elif pangenome.status["genesClustered"] not in ["Computed", "Loaded"]:
             raise Exception(
                 "Your pangenome has no gene families. See the 'cluster' subcommand."
+            )
+    if need_rna_families:
+        if pangenome.status["genesClustered"] == "inFile":
+            need_info["rna_families"] = True
+        elif pangenome.status["genesClustered"] not in ["Computed", "Loaded"]:
+            raise Exception(
+                "Your pangenome has no rna families. See the 'cluster' subcommand."
             )
     if need_graph:
         if pangenome.status["neighborsGraph"] == "inFile":
@@ -2023,12 +2283,20 @@ def get_need_info(
                 "Your pangenome does not include gene sequences. "
                 "This is possible only if you provided your own cluster file with the 'cluster' subcommand"
             )
+    if need_rna_sequences:
+        if pangenome.status["geneSequences"] == "inFile":
+            need_info["rna_sequences"] = True
+        elif pangenome.status["geneSequences"] not in ["Computed", "Loaded"]:
+            raise Exception(
+                "Your pangenome does not include rna sequences. "
+                "This is possible only if you provided your own cluster file with the 'cluster' subcommand"
+            )
     if need_intergenic_sequences:
         if pangenome.status["geneSequences"] == "inFile":
             need_info["intergenic_sequences"] = True
         elif pangenome.status["geneSequences"] not in ["Computed", "Loaded"]:
             raise Exception(
-                "Your pangenome does not include gene sequences. "
+                "Your pangenome does not include intergenic sequences. "
                 "This is possible only if you provided your own cluster file with the 'cluster' subcommand"
             )
     if need_modules:
@@ -2107,11 +2375,13 @@ def check_pangenome_info(
     pangenome,
     need_annotations: bool = False,
     need_families: bool = False,
+    need_rna_families: bool = False,
     need_graph: bool = False,
     need_partitions: bool = False,
     need_rgp: bool = False,
     need_spots: bool = False,
     need_gene_sequences: bool = False,
+    need_rna_sequences: bool = False,
     need_intergenic_sequences: bool = False,
     need_modules: bool = False,
     need_metadata: bool = False,
@@ -2126,11 +2396,13 @@ def check_pangenome_info(
     :param pangenome: Pangenome object without some information
     :param need_annotations: get annotation
     :param need_families: get gene families
+    :param need_rna_families: get RNA families
     :param need_graph: get graph
     :param need_partitions: get partition
     :param need_rgp: get RGP
     :param need_spots: get hotspot
     :param need_gene_sequences: get gene sequences
+    :param need_rna_sequences: get rna sequences
     :param need_intergenic_sequences: get intergenic sequences
     :param need_modules: get modules
     :param need_metadata: get metadata
@@ -2142,11 +2414,13 @@ def check_pangenome_info(
         pangenome,
         need_annotations,
         need_families,
+        need_rna_families,
         need_graph,
         need_partitions,
         need_rgp,
         need_spots,
         need_gene_sequences,
+        need_rna_sequences,
         need_intergenic_sequences,
         need_modules,
         need_metadata,

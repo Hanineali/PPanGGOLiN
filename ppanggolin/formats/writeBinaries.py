@@ -962,6 +962,7 @@ def erase_pangenome(
     :param pangenome: Pangenome
     :param graph: remove graph information
     :param gene_families: remove gene families information
+    :param rna_families: remove rna families information
     :param partition: remove partition information
     :param rgp: remove rgp information
     :param spots: remove spots information
