@@ -2,7 +2,7 @@
 
 import pytest
 from random import randint
-from typing import Generator, Set, Union
+from typing import Generator, Set
 from itertools import combinations_with_replacement
 
 from ppanggolin.pangenome import Edge
@@ -295,7 +295,7 @@ class TestGeneFamily:
         """Tests get all the expected neighbor of the family in the graph"""
         for family in families:
             assert all(
-                isinstance(neighbor, Union[GeneFamily,rnaFamily]) for neighbor in family.neighbors
+                isinstance(neighbor, (GeneFamily,rnaFamily)) for neighbor in family.neighbors
             )
             expected_neighbors = set(
                 [edge.source for edge in edges if edge.target == family]
