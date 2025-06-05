@@ -182,14 +182,15 @@ class Pangenome:
     """RNAs methods"""
 
     @property
-    def RNAs(self) -> Generator[Gene, None, None]:
-        """Generator of genes in the pangenome.
+    def RNAs(self) -> Generator[RNA, None, None]:
+        """Generator of rnas in the pangenome.
 
-        :return: gene generator
+        :return: rna generator
         """
         for org in self.organisms:
             for contig in org.contigs:
-                yield from contig.RNAs
+                for rna in contig.RNAs:
+                    yield rna
 
     @property
     def number_of_rnas(self) -> int:
