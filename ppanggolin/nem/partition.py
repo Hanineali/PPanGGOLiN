@@ -362,7 +362,6 @@ def write_nem_input_files(
             sum_dist_score = 0
             for edge in fam.edges:  # iter on the family's edges.
                 if isinstance(edge.source, rnaFamily) or isinstance(edge.target, rnaFamily):
-                    print(f'coucououcou {type(edge.source)}___{edge.target}')
                     continue
                 coverage = sum(
                     [

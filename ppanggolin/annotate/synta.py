@@ -750,15 +750,6 @@ def process_genes_intergenics_seq(contig, features_list, contig_seq, org, regist
                     start, stop = feature.stop + 1, next_feature.start - 1
                     coordinates = [(start, stop)]
                     intergenic_seq = contig_seq[start -1 :stop]
-                    # ---- PRINT FOR DEBUGGING ----
-                    seq_up_end = get_dna_sequence(contig_seq, feature)[-10:]
-                    seq_down_start = get_dna_sequence(contig_seq, next_feature)[:10]
-                    print(
-                        f"INTERGENIC ( {feature.ID} → {next_feature.ID} ):\n"
-                        f"  Upstream gene {feature.ID} end (last 10 nt):  {seq_up_end}\n"
-                        f"  Downstream gene {next_feature.ID} start (first 10 nt): {seq_down_start}\n"
-                        f"  Intergenic seq [{start-1}–{stop}]: {intergenic_seq}\n"
-                    )
                     intergenic_regions.append((
                         coordinates, feature, next_feature,f"{feature.ID} | {next_feature.ID}", False, 0, intergenic_seq
                     ))
