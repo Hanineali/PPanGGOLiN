@@ -478,8 +478,7 @@ class Pangenome:
                 "Genes/RNAs are not linked to families. Check that you compute the gene/rna families and post an"
                 " issue on our GitHub"
             )
-        # switch from frozenset to tuple to preserve the order
-        key = (family_1, family_2)
+        key = frozenset([family_1, family_2])
         edge = self._edge_getter.get(key)
         if edge is None:
             edge = Edge(feature1, feature2)
