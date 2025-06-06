@@ -441,12 +441,12 @@ def write_graph(
        :param disable_bar: Disable progress bar
     """
 
-    if "/features_edges" in h5f and force is True:
+    if "/edges" in h5f and force is True:
         logging.getLogger("PPanGGOLiN").info("Erasing the formerly computed features edges")
-        h5f.remove_node("/", "features_edges")
+        h5f.remove_node("/", "edges")
     edge_table = h5f.create_table(
         "/",
-        "features_edges",
+        "edges",
         graph_desc(*get_feature_id_len(pangenome)),
         expectedrows=pangenome.number_of_edges,
     )
