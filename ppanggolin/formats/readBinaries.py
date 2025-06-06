@@ -92,13 +92,11 @@ class Genedata:
 class Intergenicdata:
     def __init__(
         self,
-        source_id: str,
-        target_id: str,
+        source_id: Optional[str],
+        target_id: Optional[str],
         start: int,
         stop: int,
-        edge: str,
         offset: int,
-        neighbors: Tuple[Gene, Gene],
         coordinates: List[Tuple[int,int]] = None
     ):
         """Constructor method
@@ -111,9 +109,7 @@ class Intergenicdata:
         self.target_id = target_id
         self.start = start
         self.stop = stop
-        self.edge = edge
         self.offset = offset
-        self.neighbors = neighbors
         self.coordinates = coordinates
 
     def __eq__(self, other):
@@ -122,9 +118,7 @@ class Intergenicdata:
             and self.target_id == other.target_id
             and self.start == other.start
             and self.stop == other.stop
-            and self.edge == other.edge
             and self.offset == other.offset
-            and self.neighbors == other.neighbors
             and self.coordinates == other.coordinates
         )
 
@@ -135,9 +129,7 @@ class Intergenicdata:
                 self.target_id,
                 self.start,
                 self.stop,
-                self.edge,
                 self.offset,
-                tuple(self.neighbors),
                 tuple(self.coordinates)
             )
         )
@@ -321,16 +313,18 @@ def read_intergenicdata(h5f: tables.File) -> dict[Any, Intergenicdata]:
         stop = int(row["stop"])
         coordinates = [(start, stop)]
 
+        raw_src = row["source_id"].decode()
+        raw_tgt = row["target_id"].decode()
+        source_id = None if raw_src == "" else raw_src
+        target_id = None if raw_tgt == "" else raw_tgt
         intergenicdata = Intergenicdata(
-            source_id=row["source_id"].decode(),
-            target_id= row["target_id"].decode(),
-            start=start,
-            stop=stop,
-            edge=row["edge"].decode(),
-            offset = row["offset"].decode(),
-            neighbors=row["neighbors"].decode(),
-            coordinates=coordinates,
-        )
+            source_id = source_id,
+            target_id = target_id,
+            start = start,
+            stop = stop,
+            offset = row["offset"],
+            coordinates = coordinates,
+            )
 
         intergenicdata_id = row["intergenicdata_id"]
         intergenicdata_id2intergenicdata[intergenicdata_id] = intergenicdata
@@ -1458,7 +1452,7 @@ def read_graph(pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False
     :param h5f: Pangenome HDF5 file with graph information
     :param disable_bar: Disable the progress bar
     """
-    table = h5f.root.features_edges
+    table = h5f.root.edges
 
     if pangenome.status["genomesAnnotated"] not in [
         "Computed",
@@ -1478,8 +1472,8 @@ def read_graph(pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False
         target = pangenome.get_feature(row["featureTarget"].decode())
         intergenics_list = row["intergenic_chain"].decode().split(",")
         intergenic_chain = [pangenome.get_feature(elem) for elem in intergenics_list]
-        feat_edge = pangenome.add_edge(source, target)
-        feat_edge.add_intergenic(tuple(intergenic_chain))
+        edge = pangenome.add_edge(source, target)
+        edge.add_intergenic(tuple(intergenic_chain))
     logging.getLogger("PPanGGOLiN").info("Feature graph data loaded in pangenome")
 
 
@@ -1973,35 +1967,68 @@ def read_intergenics(
             unit="intergenic",
             disable=disable_bar,
     ):
-        intergenic = Intergenic(row["ID"].decode(), row["is_border"].decode())
+        intergenic = Intergenic(row["ID"].decode(), row["is_border"])
         intergenicdata = intergenicdata_dict[row["intergenicdata_id"]]
-        if intergenicdata.start > intergenicdata.stop:
-            logging.warning(
-                f"Wrong coordinates in intergenic: Start ({intergenicdata.start}) should not be greater than stop ({intergenicdata.stop}). This intergenic is ignored."
-            )
-            continue
-        if intergenicdata.start < 1 or intergenicdata.stop < 1:
-            logging.warning(
-                f"Wrong coordinates in intergenic: Start ({intergenicdata.start}) and stop ({intergenicdata.stop}) should be greater than 0.  This intergenic is ignored."
-            )
-            continue
+
+
+        raw_start = intergenicdata.start
+        raw_stop  = intergenicdata.stop
+
+        contig = pangenome.get_contig(int(row["contig"]))
+        is_circ = True if contig.is_circular else False
+        contig_len = getattr(contig, "length", None)  # assumed set elsewhere
+
+        if is_circ and raw_start > raw_stop:
+            coords = [
+                (raw_start, contig_len),
+                (1, raw_stop)
+            ]
+        else:
+            coords = [(raw_start, raw_stop)]
+
+        for (s0, e0) in coords:
+            if e0 < s0:
+                logging.warning(
+                    f"Skipping segment ({s0},{e0}) in intergenic {intergenicdata} "
+                    f"because stop < start."
+                )
+            if s0 < 1 or e0 < 1:
+                logging.warning(
+                    f"Skipping segment ({s0},{e0}) in intergenic {intergenicdata} "
+                    f"because coords < 1."
+                )
+
+        start, stop = coords[0][0], coords[-1][1]
 
         intergenic.fill_annotations(
-            start=intergenicdata.start,
-            stop=intergenicdata.stop,
-            coordinates= intergenicdata.coordinates,
-            strand = "+"
+            start=start,
+            stop=stop,
+            strand="+",
+            coordinates=coords,
         )
-        intergenic.source.ID = intergenicdata.source_id
-        intergenic.target.ID = intergenicdata.target_id
-        intergenic.edge = intergenicdata.edge
-        intergenic.offset = intergenicdata.offset
+
+        sid = intergenicdata.source_id
+        if sid not in (None, "", "None"):
+            try:
+                source_feat = pangenome.get_feature(sid)  # Gene ou RNA
+            except KeyError:
+                logging.warning(f"Source '{sid}' not found in pangenome; leaving source = None.")
+                source_feat = None
+            intergenic.source = source_feat
+
+        tid = intergenicdata.target_id
+        if tid not in (None, "", "None"):
+            try:
+                target_feat = pangenome.get_feature(tid)
+            except KeyError:
+                logging.warning(f"Target '{tid}' not found in pangenome; leaving target = None.")
+                target_feat = None
+            intergenic.target = target_feat
 
         if link:
-            contig = pangenome.get_contig(int(row["contig"]))
-            intergenic.fill_parents(contig.organism, contig)
-            contig.add_intergenic(intergenic)
-
+                contig = pangenome.get_contig(int(row["contig"]))
+                intergenic.fill_parents(contig.organism, contig)
+                contig.add_intergenic(intergenic)
 
 def read_annotation(
     pangenome: Pangenome,
