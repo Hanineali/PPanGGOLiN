@@ -1,0 +1,11 @@
+.idea/
+*.iml
+
+# Bytecode
+__pycache__/
+*.pyc
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
