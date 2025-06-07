@@ -1685,7 +1685,7 @@ def read_intergenic_sequences(
         unit="intergenic",
         disable=disable_bar,
     ):
-        intergenic = pangenome.get_intergenic(row["intergenic"].decode())
+        intergenic = pangenome.get_intergenic(row["intergenic_id"].decode())
         intergenic.add_sequence(seqid2seq[row["seqid"]])
     logging.getLogger("PPanGGOLiN").info("Intergenic sequences are loaded.")
 

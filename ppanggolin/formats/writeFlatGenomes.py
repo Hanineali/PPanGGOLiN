@@ -576,6 +576,37 @@ def get_organism_list(organisms_filt: str, pangenome: Pangenome) -> Set[Organism
 
     return organisms_list
 
+def write_one_organism_fasta(
+    organism: Organism,
+    outdir: Path,
+    compress: bool = False
+):
+    """
+    Écrire un fichier FASTA unique contenant la reconstruction de toutes
+    les régions codantes et intergéniques de `organism`.
+    """
+    out_file = outdir / f"{organism.name}.fasta{'.gz' if compress else ''}"
+    with write_compressed_or_not(out_file, compress=compress) as file_obj:
+        for contig in organism.contigs:
+            file_obj.write(f">{contig.name}\n")
+
+            feats = sorted(
+                list(contig.genes) + list(contig.RNAs) + list(contig.intergenics),
+                key=lambda x: (x.start, 0 if getattr(x, "dna", None) else 1)
+            )
+            overlap = 0
+            for i, feat in enumerate(feats):
+                seq = getattr(feat, "dna", "")
+                if seq:
+                    if overlap:
+                        seq = seq[overlap:]
+                        overlap = 0
+                    file_obj.write(seq)
+                else:
+                    if i + 1 < len(feats) and getattr(feats[i+1], "dna", None):
+                        overlap = feat.offset
+    logging.getLogger("PPanGGOLiN").info("DONE writing the all organisms fasta file")
+
 
 def mp_write_genomes_file(
     organism: Organism,
@@ -584,6 +615,7 @@ def mp_write_genomes_file(
     proksee: bool = False,
     gff: bool = False,
     table: bool = False,
+    init_fasta:bool = False,
     **kwargs,
 ) -> str:
     """Wrapper for the write_genomes_file function that allows it to be used in multiprocessing.
@@ -594,6 +626,7 @@ def mp_write_genomes_file(
     :param proksee: Write a proksee file for the organism
     :param gff:  Write the gff file for the organism
     :param table: Write the organism file for the organism
+    :param init_fasta: Write the initial fasta file for the organism
     :param kwargs: Pass any number of keyword arguments to the function
 
     :return: The organism name
@@ -656,6 +689,14 @@ def mp_write_genomes_file(
                 }
             },
         )
+    if init_fasta:
+        org_fast_outdir = output / "Orgfastas"
+        mk_outdir(org_fast_outdir, force=True, exist_ok=True)
+        write_one_organism_fasta(
+            organism=organism,
+            output=org_fast_outdir,
+            compress=kwargs.get("compress", False),
+        )
 
     return organism.name
 
@@ -673,6 +714,7 @@ def write_flat_genome_files(
     add_metadata: bool = False,
     metadata_sep: str = "|",
     metadata_sources: List[str] = None,
+    init_fasta: bool = False,
     cpu: int = 1,
     disable_bar: bool = False,
 ):
@@ -695,7 +737,7 @@ def write_flat_genome_files(
     :param metadata_sources: Sources of the metadata to use and write in the outputs. None means all sources are used.
     """
 
-    if not any(x for x in [table, gff, proksee]):
+    if not any(x for x in [table, gff, proksee, init_fasta]):
         raise argparse.ArgumentError(
             argument=None, message="You did not indicate what file you wanted to write."
         )
@@ -747,6 +789,7 @@ def write_flat_genome_files(
             "proksee": proksee,
             "compress": compress,
             "multigenics": multigenics,
+            "init_fasta": init_fasta,
         }
     )
     for organism in organisms_list:
@@ -836,6 +879,7 @@ def launch(args: argparse.Namespace):
         add_metadata=args.add_metadata,
         metadata_sep=args.metadata_sep,
         metadata_sources=args.metadata_sources,
+        init_fasta=args.init_fasta,
         cpu=args.cpu,
         disable_bar=args.disable_prog_bar,
     )
@@ -939,6 +983,12 @@ def parser_flat(parser: argparse.ArgumentParser):
         default="|",
         help="The separator used to join multiple metadata values for elements with multiple metadata"
         " values from the same source. This character should not appear in metadata values.",
+    )
+    optional.add_argument(
+        "--init_fasta",
+        required = False,
+        action = "store_true",
+        help = "Reconstruct the whole-genome FASTA per organism from the pangenome."
     )
 
     optional.add_argument(
