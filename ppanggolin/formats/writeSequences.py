@@ -731,50 +731,6 @@ def write_regions_sequences(
         f"Done writing the regions nucleotide sequences: "
         f"'{outname}{'.gz' if compress else ''}'"
     )
-# function to reconstruct the genome whole sequence per organism
-def write_fasta_per_organism_from_pangenome(pangenome: Pangenome, outputdir: Path, compress: bool ):
-    dir_name = outputdir / "All_organisms_fasta"
-    mk_outdir(dir_name, force=False, exist_ok=True)
-
-    for org in pangenome.organisms:
-        fasta_file = dir_name / f"{org.name}.fasta"
-        with write_compressed_or_not(fasta_file, compress=False) as file_obj:
-            for contig in org.contigs:
-                file_obj.write(f">{contig.name}\n")
-
-                all_features_list = sorted(
-                    list(contig.genes) + list(contig.RNAs) + list(contig.intergenics),
-                    key=lambda x: (x.start, 0 if hasattr(x, 'dna') and not x.dna else 1)
-                )
-
-                overlap_to_trim = 0
-
-                for i, feature in enumerate(all_features_list):
-                    if hasattr(feature, 'dna') and feature.dna:
-                        trimmed_seq = feature.dna
-                        print(overlap_to_trim)
-                        if overlap_to_trim > 0:
-                            trimmed_seq = trimmed_seq[overlap_to_trim:]
-                            overlap_to_trim = 0  # reset after applying
-                        file_obj.write(f"{trimmed_seq}")
-                    else:
-                        if i + 1 < len(all_features_list):
-                            next_feature = all_features_list[i + 1]
-                            if hasattr(next_feature, 'dna') and next_feature.dna:
-                                overlap_to_trim = feature.offset
-
-    logging.getLogger("PPanGGOLiN").info("DONE writing the all organisms fasta file")
-
-def write_fasta_per_organism_from_pangenome_file(filename: str, outputdir: Path):
-    dir_name = outputdir / "All_organisms_fasta"
-    mk_outdir(dir_name, force=False, exist_ok=True)
-
-    pangenome = Pangenome()
-    with tables.open_file(filename, "r") as h5f:
-        read_annotation(pangenome, h5f)
-
-    write_fasta_per_organism_from_pangenome(pangenome, dir_name)
-
 
 def write_sequence_files(
     pangenome: Pangenome,
