@@ -235,27 +235,32 @@ class Pangenome:
             return rna
 
     def get_feature(self, feature_id: str) -> Union[Gene, RNA, Intergenic]:
-        """Returns the feature that has the given feature ID
+        """Return the feature (gene, RNA, or intergenic) that has the given feature ID."""
+        assert isinstance(feature_id, str), f"Feature ID ({feature_id}) must be a string, not {type(feature_id)}"
 
-        :param feature_id: The feature (gene/rna/intergenic) ID to look for
-
-        :return: Returns the feature object that has the ID `feature_id`
-
-        :raises AssertionError: If the `feature_id` is not a string
-        :raises KeyError: If the `feature_id` is not in the pangenome
-        """
-        assert isinstance(
-            feature_id, str
-        ), f"The provided feature id ({feature_id}) should be a string and not a {type(feature_id)}"
-
+        # Check for Intergenic ID (by pattern)
         if "|" in feature_id:
-            return self.get_intergenic(feature_id)
-        elif "RNA" in feature_id:
-            return self.get_rna(feature_id)
-        elif "CDS" in feature_id:
-            return self.get_gene(feature_id)
+            if not hasattr(self, "_intergenic_getter"):
+                self._mk_intergenic_getter()
+            try:
+                return self._intergenic_getter[feature_id]
+            except KeyError:
+                raise KeyError(f"Intergenic feature not found for {feature_id}")
+
+        # Check for RNA (by pattern or presence in getter)
+        if not hasattr(self, "_rna_getter"):
+            self._mk_rna_getter()
+        if feature_id in self._rna_getter:
+            return self._rna_getter[feature_id]
+
+        # Check for Gene (by pattern or presence in getter)
+        if not hasattr(self, "_gene_getter"):
+            self._mk_gene_getter()
+        if feature_id in self._gene_getter:
+            return self._gene_getter[feature_id]
         else:
-            raise KeyError(f"Unknown feature type for {feature_id}")
+            raise KeyError(f"Feature not found for {feature_id}")    # If not found
+
 
     """Intergenic regions methods"""
 
