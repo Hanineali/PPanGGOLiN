@@ -237,22 +237,18 @@ class Feature(MetaFeatures):
         self.coordinates = coordinates
 
     def fill_parents(self, organism: Organism = None, contig: Contig = None):
-        """Associate object to an organism and a contig
+        """Associate object to an organism and/or contig."""
+        if organism is not None and not isinstance(organism, Organism):
+            raise TypeError(f"organism must be Organism, got {type(organism)}")
+        if contig is not None and not isinstance(contig, Contig):
+            raise TypeError(f"contig must be Contig, got {type(contig)}")
 
-        :param organism: Parent organism
-        :param contig: Parent contig
-        """
         if organism is not None:
-            # TODO test type
             self.organism = organism
-            if contig is not None:
-                self.contig = contig
-        else:
-            if contig is not None:
-                self.contig = contig
-            else:
-                raise AssertionError("You should provide at least organism or contig")
-
+        if contig is not None:
+            self.contig = contig
+        if organism is None and contig is None:
+            raise AssertionError("You should provide at least organism or contig")
     def add_sequence(self, sequence):
         """Add a sequence to feature
 
