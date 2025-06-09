@@ -599,7 +599,7 @@ def write_one_organism_fasta(
                 seq = getattr(feat, "dna", "")
                 if seq:
                     if overlap:
-                        seq = seq[overlap:]
+                        seq = seq[overlap -1:]
                         overlap = 0
                     file_obj.write(seq)
                 else:
@@ -694,7 +694,7 @@ def mp_write_genomes_file(
         mk_outdir(org_fast_outdir, force=True, exist_ok=True)
         write_one_organism_fasta(
             organism=organism,
-            output=org_fast_outdir,
+            outdir=org_fast_outdir,
             compress=kwargs.get("compress", False),
         )
 
@@ -744,6 +744,9 @@ def write_flat_genome_files(
 
     need_dict = {
         "need_annotations": True,
+        "need_gene_sequences": True,
+        "need_rna_sequences": True,
+        "need_intergenic_sequences": True,
         "need_families": True,
         "need_partitions": True,
         "need_rgp": True if pangenome.status["predictedRGP"] != "No" else False,
