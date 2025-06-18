@@ -576,36 +576,53 @@ def get_organism_list(organisms_filt: str, pangenome: Pangenome) -> Set[Organism
 
     return organisms_list
 
+def feature_priority(feat):
+    # Intergenic or no DNA come first: 0, otherwise: 1
+    return 0 if (hasattr(feat, "offset") or getattr(feat, "dna", None) is None) else 1
+
 def write_one_organism_fasta(
     organism: Organism,
     outdir: Path,
     compress: bool = False
 ):
     """
-    Écrire un fichier FASTA unique contenant la reconstruction de toutes
-    les régions codantes et intergéniques de `organism`.
+    Write a single FASTA file containing all coding and intergenic regions
+    of `organism`. Each contig starts on a new line, with its own header.
     """
     out_file = outdir / f"{organism.name}.fasta{'.gz' if compress else ''}"
     with write_compressed_or_not(out_file, compress=compress) as file_obj:
-        for contig in organism.contigs:
-            file_obj.write(f">{contig.name}\n")
+        for idx, contig in enumerate(organism.contigs):
+            if idx > 0:
+                file_obj.write('\n')
+            file_obj.write(f">{organism.name}|{contig.name}\n")
 
             feats = sorted(
-                list(contig.genes) + list(contig.RNAs) + list(contig.intergenics),
-                key=lambda x: (x.start, 0 if getattr(x, "dna", None) else 1)
+                list(contig.genes) + list(contig.RNAs) + list(contig.intergenics), key=lambda x: (x.start, feature_priority(x))
             )
+            reconstructed_seq = ""
             overlap = 0
+
             for i, feat in enumerate(feats):
-                seq = getattr(feat, "dna", "")
-                if seq:
-                    if overlap:
-                        seq = seq[overlap -1:]
+                seq = feat.dna
+
+                if seq is not None:
+                    if overlap != 0:
+                        logging.getLogger("PPanGGOLiN").info(f"Applying overlap: Skipping first {overlap} bases of this sequence.")
+                        seq = seq[overlap:]
+                        reconstructed_seq += seq
                         overlap = 0
-                    file_obj.write(seq)
+                    else:
+                        reconstructed_seq += seq
+
                 else:
-                    if i + 1 < len(feats) and getattr(feats[i+1], "dna", None):
+                    if i + 1 < len(feats) and (feats[i+1].dna is not None):
                         overlap = feat.offset
-    logging.getLogger("PPanGGOLiN").info("DONE writing the all organisms fasta file")
+            line_width = 60
+            for i in range(0, len(reconstructed_seq), line_width):
+                file_obj.write(f"{reconstructed_seq[i:i + line_width]}\n")
+
+    logging.getLogger("PPanGGOLiN").info("DONE writing all organisms' fasta file\n")
+
 
 
 def mp_write_genomes_file(
@@ -687,10 +704,10 @@ def mp_write_genomes_file(
                     "compress",
                     "metadata_sep",
                 }
-            },
+            }
         )
     if init_fasta:
-        org_fast_outdir = output / "Orgfastas"
+        org_fast_outdir = output / "org_fastas"
         mk_outdir(org_fast_outdir, force=True, exist_ok=True)
         write_one_organism_fasta(
             organism=organism,
