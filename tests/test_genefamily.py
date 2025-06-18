@@ -7,7 +7,8 @@ from itertools import combinations_with_replacement
 
 from ppanggolin.pangenome import Edge
 from ppanggolin.geneFamily import GeneFamily
-from ppanggolin.genome import Gene, Organism, Contig
+from ppanggolin.rnaFamily import rnaFamily
+from ppanggolin.genome import Gene, Organism, Contig, RNA
 from ppanggolin.region import Spot, Module
 
 
@@ -285,7 +286,7 @@ class TestGeneFamily:
                 edge = Edge(pair[0], pair[1])
                 edges[key] = edge
             else:
-                edge.add_genes(pair[0], pair[1])
+                edge.add_features(pair[0], pair[1])
             pair[0].family.set_edge(pair[1].family, edge)
             pair[1].family.set_edge(pair[0].family, edge)
         yield set(edges.values())
