@@ -43,7 +43,7 @@ from ppanggolin.formats.readBinaries import (
     write_intergenic_sequences_from_file,
     write_rna_sequences_from_pangenome_file,
     write_rna_product_from_pangenome_file,
-    write_rnas_sequences_from_file, read_organisms, read_annotation
+    write_rnas_sequences_from_file, write_fasta_rnafam_from_pangenome_file
 )
 
 module_regex = re.compile(r"^module_\d+")  # \d == [0-9]
@@ -744,6 +744,7 @@ def write_sequence_files(
     intergenics: str = None,
     proteins: str = None,
     gene_families: str = None,
+    rna_families: str = None,
     prot_families: str = None,
     compress: bool = False,
     disable_bar: bool = False,
@@ -800,6 +801,15 @@ def write_sequence_files(
         )
 
         prot_families = None
+
+    if rna_families is not None:
+        logging.getLogger("PPanGGOLiN").info("Writing rna families sequences by reading the pangenome file directly.")
+        write_fasta_rnafam_from_pangenome_file(
+            pangenome_filename=pangenome.file,
+            output=output,
+            compress=compress,
+            disable_bar=disable_bar
+        )
 
     if genes is not None:
 
@@ -906,6 +916,8 @@ def launch(args: argparse.Namespace):
         proteins=args.proteins,
         gene_families=args.gene_families,
         prot_families=args.prot_families,
+        rnas_families=args.rnas_families,
+        edges=args.edges,
         compress=args.compress,
         disable_bar=args.disable_prog_bar,
         **translate_kwgs
