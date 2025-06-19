@@ -760,7 +760,7 @@ def get_fam_to_genes(
 
     :param h5f: The open HDF5 pangenome file containing gene sequence data.
     :param disable_bar: Boolean flag to disable the progress bar if set to True.
-    :return: A dictionary mapping gene_fa,ilies to lists of gene ids.
+    :return: A dictionary mapping gene_families to lists of gene ids.
     """
 
     fam_to_genes = defaultdict(list)
@@ -1068,24 +1068,42 @@ def write_fasta_rnafam_from_pangenome_file(
         pangenome_filename: str,
         output: Path,
         compress: bool = False,
-        disable_bar: bool = False,
+        disable_bar=False,
 ):
-    outpath = output / "rna_fam_sequences.fna"
+    """
+       Write representative sequences of rna families.
+
+       :param pangenome: Pangenome object with gene families sequences
+       :param output: Path to output directory
+       :param compress: Compress the file in .gz
+       """
+    outpath = output / f"rna_fam_sequences.fna{'.gz' if compress else ''}"
+    print("Done creating the folder")
 
     with tables.open_file(pangenome_filename, "r", driver_core_backing_store=0) as h5f:
-        if "/annotations/rnaFamilies" not in h5f:
+        if "/rnaFamiliesInfo" not in h5f:
             logging.getLogger("PPanGGOLiN").warning(
-                "No rna family  found in the pangenome file."
+                "No rna family info found in the pangenome file."
             )
             return
 
-        seq_id_to_rnas = get_seqid_to_rnas(
-            h5f, disable_bar=disable_bar
-        )
+        rnaFam_table = h5f.root.rnaFamiliesInfo
+        print(f"Number of rows in RNA family table: {rnaFam_table.nrows}")
 
-        write_rnas_seq_from_pangenome_file(
-           h5f, outpath, compress, seq_id_to_rnas, disable_bar=disable_bar
-        )
+
+        with write_compressed_or_not(file_path=outpath, compress=compress) as file_obj:
+            for row in tqdm(
+                    read_chunks(rnaFam_table, chunk=20000),
+                    total=rnaFam_table.nrows,
+                    unit="rnafamily",
+                    disable=disable_bar,
+            ):
+                rnaFam_name = row["name"].decode()
+                rnaFam_seq = row["sequence"].decode(errors="ignore")
+
+                file_obj.write(f">{rnaFam_name}\n")
+                file_obj.write(f"{rnaFam_seq}\n")
+
 
 def write_genes_from_pangenome_file(
     pangenome_filename: str,
@@ -1626,7 +1644,7 @@ def read_rna_families_info(
         disable=disable_bar,
     ):
         fam = pangenome.get_rna_family(row["name"].decode())
-        fam.add_sequence(row["sequence"].decode())
+        fam.add_sequence(row["sequence"].decode(errors="ignore"))
 
 
 def read_gene_sequences(

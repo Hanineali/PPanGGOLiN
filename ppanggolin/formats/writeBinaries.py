@@ -208,14 +208,14 @@ def write_rna_fam_info(
     )
 
     row = rna_fam_seq.row
-    for fam in tqdm(
+    for rnafam in tqdm(
         pangenome.rna_families,
         total=pangenome.number_of_rna_families,
         unit="rna family",
         disable=disable_bar,
     ):
-        row["name"] = fam.name
-        row["sequence"] = fam.sequence
+        row["name"] = rnafam.name
+        row["sequence"] = rnafam.sequence
         row.append()
     rna_fam_seq.flush()
 

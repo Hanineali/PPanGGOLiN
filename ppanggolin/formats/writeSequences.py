@@ -744,8 +744,8 @@ def write_sequence_files(
     intergenics: str = None,
     proteins: str = None,
     gene_families: str = None,
-    rna_families: str = None,
     prot_families: str = None,
+    rna_families: str = None,
     compress: bool = False,
     disable_bar: bool = False,
     **translate_kwgs,
@@ -760,10 +760,12 @@ def write_sequence_files(
     :param soft_core: Soft core threshold to use
     :param regions: Write the RGP nucleotide sequences
     :param genes: Write all nucleotide CDS sequences
+    :param rnas: Write all nucleotide rna sequences
     :param intergenics: Write all nucleotide intergenics sequences
     :param proteins: Write amino acid CDS sequences.
     :param gene_families: Write representative nucleotide sequences of gene families.
     :param prot_families: Write representative amino acid sequences of gene families.
+    :param rna_families: Write representative nucleotide sequences of gene families.
     :param compress: Compress the file in .gz
     :param disable_bar: Disable progress bar
     """
@@ -808,8 +810,10 @@ def write_sequence_files(
             pangenome_filename=pangenome.file,
             output=output,
             compress=compress,
-            disable_bar=disable_bar
+            disable_bar=disable_bar,
         )
+
+        rna_families = None
 
     if genes is not None:
 
@@ -916,8 +920,7 @@ def launch(args: argparse.Namespace):
         proteins=args.proteins,
         gene_families=args.gene_families,
         prot_families=args.prot_families,
-        rnas_families=args.rnas_families,
-        edges=args.edges,
+        rna_families=args.rnas_families,
         compress=args.compress,
         disable_bar=args.disable_prog_bar,
         **translate_kwgs
@@ -1041,6 +1044,12 @@ def parser_seq(parser: argparse.ArgumentParser):
         required=False,
         type=filter_values,
         help=f"Write representative nucleotide sequences of gene families. {poss_values_log}",
+    )
+    onereq.add_argument(
+        "--rnas_families",
+        required=False,
+        type=filter_values,
+        help=f"Write representative nucleotide sequences of rna families. {poss_values_log}",
     )
 
     optional = parser.add_argument_group(title="Optional arguments")
