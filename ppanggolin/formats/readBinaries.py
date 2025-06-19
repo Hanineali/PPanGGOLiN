@@ -686,7 +686,7 @@ def get_genes_to_seqid(
     :return: A dictionary mapping gene names (strings) to sequence IDs .
     """
 
-    genes_to_seqid= defaultdict()
+    genes_to_seqid = defaultdict()
     seqid_gene_seq_table = h5f.root.annotations.geneSequences
     for row in tqdm(
         read_chunks(seqid_gene_seq_table, chunk=20000),
@@ -1064,6 +1064,29 @@ def write_fasta_prot_fam_from_pangenome_file(
         f"'{outpath}{'.gz' if compress else ''}'"
     )
 
+def write_fasta_rnafam_from_pangenome_file(
+        pangenome_filename: str,
+        output: Path,
+        compress: bool = False,
+        disable_bar: bool = False,
+):
+    outpath = output / "rna_fam_sequences.fna"
+
+    with tables.open_file(pangenome_filename, "r", driver_core_backing_store=0) as h5f:
+        if "/annotations/rnaFamilies" not in h5f:
+            logging.getLogger("PPanGGOLiN").warning(
+                "No rna family  found in the pangenome file."
+            )
+            return
+
+        seq_id_to_rnas = get_seqid_to_rnas(
+            h5f, disable_bar=disable_bar
+        )
+
+        write_rnas_seq_from_pangenome_file(
+           h5f, outpath, compress, seq_id_to_rnas, disable_bar=disable_bar
+        )
+
 def write_genes_from_pangenome_file(
     pangenome_filename: str,
     output: Path,
@@ -1132,6 +1155,7 @@ def write_genes_from_pangenome_file(
     )
 
 def write_gene_families_fasta_files(
+    pangenome:Pangenome,
     pangenome_filename: str,
     output_dir: Path,
     compress: bool = False,
@@ -1177,8 +1201,7 @@ def write_fam_genes_seq_from_pangenome_file(
                 file_obj.write(f">{gene}\n")
                 file_obj.write(f"{dna_sequence}\n")
 
-
-
+#annotation needs to be loaded
 def write_edges_fasta_files(
     pangenome:Pangenome,
     pangenome_filename: str,
@@ -1195,6 +1218,8 @@ def write_edges_fasta_files(
     :param compress: Whether to gzip-compress the output files.
     :param disable_bar: Whether to disable the progress bar.
     """
+
+    check_pangenome_info(pangenome, need_annotations=True, disable_bar = disable_bar)
 
     with tables.open_file(pangenome_filename, "r", driver_core_backing_store=0) as h5f:
 
@@ -1473,7 +1498,7 @@ def read_graph(pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False
         intergenics_list = row["intergenic_chain"].decode().split(",")
         intergenic_chain = [pangenome.get_feature(elem) for elem in intergenics_list]
         edge = pangenome.add_edge(source, target)
-        edge.add_intergenic(tuple(intergenic_chain))
+        edge.add_intergenic_chain(tuple(intergenic_chain))
     logging.getLogger("PPanGGOLiN").info("Feature graph data loaded in pangenome")
 
 
@@ -1973,6 +1998,7 @@ def read_intergenics(
 
         raw_start = intergenicdata.start
         raw_stop  = intergenicdata.stop
+        offset = intergenicdata.offset
 
         contig = pangenome.get_contig(int(row["contig"]))
         is_circ = True if contig.is_circular else False
@@ -2024,6 +2050,8 @@ def read_intergenics(
                 logging.warning(f"Target '{tid}' not found in pangenome; leaving target = None.")
                 target_feat = None
             intergenic.target = target_feat
+
+        intergenic.offset = offset
 
         if link:
                 contig = pangenome.get_contig(int(row["contig"]))
