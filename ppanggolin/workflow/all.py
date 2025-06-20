@@ -403,6 +403,7 @@ def launch_workflow(
                 proksee=args.write_genomes.proksee,
                 table=args.write_genomes.table,
                 gff=args.write_genomes.gff,
+                init_fasta=args.write_genomes.init_fasta,
                 add_metadata=True,
                 compress=args.write_genomes.compress,
                 disable_bar=args.disable_prog_bar,

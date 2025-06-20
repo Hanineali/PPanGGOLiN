@@ -1,4 +1,3 @@
-# IDE
 .idea/
 *.iml
 
@@ -9,4 +8,6 @@ __pycache__/
 # Build artifacts
 build/
 dist/
+
 *.egg-info/
+>>>>>>> read-h5file

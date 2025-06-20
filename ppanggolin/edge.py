@@ -46,7 +46,9 @@ class Edge:
             )
         self.source = source_feature.family
         self.target = target_feature.family
-        self.intergenics=[]
+        src, tgt = sorted((self.source.name, self.target.name))
+        self.name = f"{src} | {tgt}"
+        #self.intergenics=[]
         self.source.set_edge(self.target, self)
         self.target.set_edge(self.source, self)
         self._organisms: Dict[Organism, Dict[str, List]] = defaultdict(lambda : {"pairs": [], "intergenic": []})
@@ -137,7 +139,7 @@ class Edge:
             for intergenic_chain in org_data["intergenic"]
         ]
 
-    def add_intergenic(self, intergenic_chain: Tuple[Union[Intergenic, Tuple[Union[Intergenic, Gene, RNA], ...]]]):
+    def add_intergenic_chain(self, intergenic_chain: Tuple[Union[Intergenic, Tuple[Union[Intergenic, Gene, RNA], ...]]]):
         """
         Adds the corresponding intergenic (if no removed family) / intergenic_feature chain (if removed family).
         :param intergenic_chain: A list containing Intergenic, or a tuple of (Intergenic, Gene/RNA, Intergenic), etc.

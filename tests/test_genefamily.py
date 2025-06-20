@@ -7,7 +7,8 @@ from itertools import combinations_with_replacement
 
 from ppanggolin.pangenome import Edge
 from ppanggolin.geneFamily import GeneFamily
-from ppanggolin.genome import Gene, Organism, Contig
+from ppanggolin.rnaFamily import rnaFamily
+from ppanggolin.genome import Gene, Organism, Contig, RNA
 from ppanggolin.region import Spot, Module
 from ppanggolin.rnaFamily import rnaFamily
 

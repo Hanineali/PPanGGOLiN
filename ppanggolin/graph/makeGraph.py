@@ -184,7 +184,7 @@ def compute_neighbors_graph(
                             temp_list.append(intergenic)
 
                         if temp_list:
-                            feat_edge.add_intergenic(tuple(temp_list))
+                            feat_edge.add_intergenic_chain(tuple(temp_list))
                             assign_edge_to_intergenic_data(temp_list, feat_edge)
 
                         # Flag if this edge links two fragment features of the same family
@@ -247,7 +247,7 @@ def compute_neighbors_graph(
                     try:
                         feat_edge = pangenome.add_edge(prev_conserved_feat, first_feat)
                         if circular_chain:
-                            feat_edge.add_intergenic(tuple(circular_chain))
+                            feat_edge.add_intergenic_chain(tuple(circular_chain))
                             assign_edge_to_intergenic_data(circular_chain, feat_edge)
 
                         # Flag for fragment link if needed

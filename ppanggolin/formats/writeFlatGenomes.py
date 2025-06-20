@@ -576,6 +576,54 @@ def get_organism_list(organisms_filt: str, pangenome: Pangenome) -> Set[Organism
 
     return organisms_list
 
+def feature_priority(feat):
+    # Intergenic or no DNA come first: 0, otherwise: 1
+    return 0 if (hasattr(feat, "offset") or getattr(feat, "dna", None) is None) else 1
+
+def write_one_organism_fasta(
+    organism: Organism,
+    outdir: Path,
+    compress: bool = False
+):
+    """
+    Write a single FASTA file containing all coding and intergenic regions
+    of `organism`. Each contig starts on a new line, with its own header.
+    """
+    out_file = outdir / f"{organism.name}.fasta{'.gz' if compress else ''}"
+    with write_compressed_or_not(out_file, compress=compress) as file_obj:
+        for idx, contig in enumerate(organism.contigs):
+            if idx > 0:
+                file_obj.write('\n')
+            file_obj.write(f">{organism.name}|{contig.name}\n")
+
+            feats = sorted(
+                list(contig.genes) + list(contig.RNAs) + list(contig.intergenics), key=lambda x: (x.start, feature_priority(x))
+            )
+            reconstructed_seq = ""
+            overlap = 0
+
+            for i, feat in enumerate(feats):
+                seq = feat.dna
+
+                if seq is not None:
+                    if overlap != 0:
+                        logging.getLogger("PPanGGOLiN").info(f"Applying overlap: Skipping first {overlap} bases of this sequence.")
+                        seq = seq[overlap:]
+                        reconstructed_seq += seq
+                        overlap = 0
+                    else:
+                        reconstructed_seq += seq
+
+                else:
+                    if i + 1 < len(feats) and (feats[i+1].dna is not None):
+                        overlap = feat.offset
+            line_width = 60
+            for i in range(0, len(reconstructed_seq), line_width):
+                file_obj.write(f"{reconstructed_seq[i:i + line_width]}\n")
+
+    logging.getLogger("PPanGGOLiN").info("DONE writing all organisms' fasta file\n")
+
+
 
 def mp_write_genomes_file(
     organism: Organism,
@@ -584,6 +632,7 @@ def mp_write_genomes_file(
     proksee: bool = False,
     gff: bool = False,
     table: bool = False,
+    init_fasta:bool = False,
     **kwargs,
 ) -> str:
     """Wrapper for the write_genomes_file function that allows it to be used in multiprocessing.
@@ -594,6 +643,7 @@ def mp_write_genomes_file(
     :param proksee: Write a proksee file for the organism
     :param gff:  Write the gff file for the organism
     :param table: Write the organism file for the organism
+    :param init_fasta: Write the initial fasta file for the organism
     :param kwargs: Pass any number of keyword arguments to the function
 
     :return: The organism name
@@ -654,7 +704,15 @@ def mp_write_genomes_file(
                     "compress",
                     "metadata_sep",
                 }
-            },
+            }
+        )
+    if init_fasta:
+        org_fast_outdir = output / "org_fastas"
+        mk_outdir(org_fast_outdir, force=True, exist_ok=True)
+        write_one_organism_fasta(
+            organism=organism,
+            outdir=org_fast_outdir,
+            compress=kwargs.get("compress", False),
         )
 
     return organism.name
@@ -673,6 +731,7 @@ def write_flat_genome_files(
     add_metadata: bool = False,
     metadata_sep: str = "|",
     metadata_sources: List[str] = None,
+    init_fasta: bool = False,
     cpu: int = 1,
     disable_bar: bool = False,
 ):
@@ -695,13 +754,16 @@ def write_flat_genome_files(
     :param metadata_sources: Sources of the metadata to use and write in the outputs. None means all sources are used.
     """
 
-    if not any(x for x in [table, gff, proksee]):
+    if not any(x for x in [table, gff, proksee, init_fasta]):
         raise argparse.ArgumentError(
             argument=None, message="You did not indicate what file you wanted to write."
         )
 
     need_dict = {
         "need_annotations": True,
+        "need_gene_sequences": True,
+        "need_rna_sequences": True,
+        "need_intergenic_sequences": True,
         "need_families": True,
         "need_partitions": True,
         "need_rgp": True if pangenome.status["predictedRGP"] != "No" else False,
@@ -747,6 +809,7 @@ def write_flat_genome_files(
             "proksee": proksee,
             "compress": compress,
             "multigenics": multigenics,
+            "init_fasta": init_fasta,
         }
     )
     for organism in organisms_list:
@@ -836,6 +899,7 @@ def launch(args: argparse.Namespace):
         add_metadata=args.add_metadata,
         metadata_sep=args.metadata_sep,
         metadata_sources=args.metadata_sources,
+        init_fasta=args.init_fasta,
         cpu=args.cpu,
         disable_bar=args.disable_prog_bar,
     )
@@ -939,6 +1003,12 @@ def parser_flat(parser: argparse.ArgumentParser):
         default="|",
         help="The separator used to join multiple metadata values for elements with multiple metadata"
         " values from the same source. This character should not appear in metadata values.",
+    )
+    optional.add_argument(
+        "--init_fasta",
+        required = False,
+        action = "store_true",
+        help = "Reconstruct the whole-genome FASTA per organism from the pangenome."
     )
 
     optional.add_argument(

@@ -3,6 +3,7 @@
 # default libraries
 import logging
 import os
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Dict, Any, Iterator, Set, List, Tuple, Optional, Iterable
 from collections import defaultdict
@@ -12,9 +13,10 @@ from tqdm import tqdm
 import tables
 
 # local libraries
-from ppanggolin.genome import Organism, Gene, RNA, Contig
+from ppanggolin.genome import Organism, Gene, RNA, Contig, Intergenic
 from ppanggolin.pangenome import Pangenome
 from ppanggolin.geneFamily import GeneFamily
+from ppanggolin.rnaFamily import rnaFamily
 from ppanggolin.region import Region, Spot, Module
 from ppanggolin.metadata import Metadata
 from ppanggolin.utils import write_compressed_or_not
@@ -91,14 +93,12 @@ class Genedata:
 class Intergenicdata:
     def __init__(
         self,
-        source_id: str,
-        target_id: str,
+        source_id: Optional[str],
+        target_id: Optional[str],
         start: int,
         stop: int,
-        edge: str,
         offset: int,
-        neighbors: Tuple[Gene, Gene],
-        coordinates: List[Tuple[int]] = None
+        coordinates: List[Tuple[int,int]] = None
     ):
         """Constructor method
 
@@ -110,9 +110,7 @@ class Intergenicdata:
         self.target_id = target_id
         self.start = start
         self.stop = stop
-        self.edge = edge
         self.offset = offset
-        self.neighbors = neighbors
         self.coordinates = coordinates
 
     def __eq__(self, other):
@@ -121,9 +119,7 @@ class Intergenicdata:
             and self.target_id == other.target_id
             and self.start == other.start
             and self.stop == other.stop
-            and self.edge == other.edge
             and self.offset == other.offset
-            and self.neighbors == other.neighbors
             and self.coordinates == other.coordinates
         )
 
@@ -134,9 +130,7 @@ class Intergenicdata:
                 self.target_id,
                 self.start,
                 self.stop,
-                self.edge,
                 self.offset,
-                tuple(self.neighbors),
                 tuple(self.coordinates)
             )
         )
@@ -320,22 +314,23 @@ def read_intergenicdata(h5f: tables.File) -> dict[Any, Intergenicdata]:
         stop = int(row["stop"])
         coordinates = [(start, stop)]
 
+        raw_src = row["source_id"].decode()
+        raw_tgt = row["target_id"].decode()
+        source_id = None if raw_src == "" else raw_src
+        target_id = None if raw_tgt == "" else raw_tgt
         intergenicdata = Intergenicdata(
-            source_id=row["source_id"].decode(),
-            target_id= row["target_id"].decode(),
-            start=start,
-            stop=stop,
-            edge=row["edge"].decode(),
-            offset = row["offset"].decode(),
-            neighbors=row["neighbors"].decode(),
-            coordinates=coordinates,
-        )
+            source_id = source_id,
+            target_id = target_id,
+            start = start,
+            stop = stop,
+            offset = row["offset"],
+            coordinates = coordinates,
+            )
 
         intergenicdata_id = row["intergenicdata_id"]
         intergenicdata_id2intergenicdata[intergenicdata_id] = intergenicdata
 
     return intergenicdata_id2intergenicdata
-
 
 def read_join_coordinates(h5f: tables.File) -> Dict[str, List[Tuple[int, int]]]:
     """
@@ -465,6 +460,7 @@ def write_gene_sequences_from_pangenome_file(
                 if row["type"] == b"CDS" and (list_cds is None or name_cds in list_cds):
                     file_obj.write(">" + add + name_cds + "\n")
                     file_obj.write(seqid2seq[row["seqid"]] + "\n")
+
     logging.getLogger("PPanGGOLiN").debug(
         "Gene sequences from pangenome file was written to "
         f"{output.absolute()}{'.gz' if compress else ''}"
@@ -499,6 +495,7 @@ def write_rna_sequences_from_pangenome_file(
                     disable=disable_bar,
             ):
                 name_rnas = row["rna"].decode()
+                rna_product = row["product"].decode()
                 rna_list_type = [b"tRNA", b"tmRNA", b"rRNA", b"ncRNA", b"misc_RNA"]  # Ensure correct format
                 if row["type"] in rna_list_type and (list_rnas is None or name_rnas in list_rnas):
                     file_obj.write(">" + name_rnas + "\n")
@@ -675,6 +672,213 @@ def get_seqid_to_genes(
     ), f"Number of sequences found ({match_count}) does not match the number of expected genes {len(genes)}."
 
     return seq_id_to_genes
+
+def get_genes_to_seqid(
+    h5f: tables.File,
+    disable_bar: bool = False,
+) -> Dict[str, int]:
+    """
+    Creates a mapping of gene names to sequence IDs .
+
+    :param h5f: The open HDF5 pangenome file containing gene sequence data.
+    :param disable_bar: Boolean flag to disable the progress bar if set to True.
+    :return: A dictionary mapping gene names (strings) to sequence IDs .
+    """
+
+    genes_to_seqid = defaultdict()
+    seqid_gene_seq_table = h5f.root.annotations.geneSequences
+    for row in tqdm(
+        read_chunks(seqid_gene_seq_table, chunk=20000),
+        total=seqid_gene_seq_table.nrows,
+        unit="gene",
+        disable=disable_bar,
+    ):
+        gene = row["gene"].decode()
+        gene_seqid = row["seqid"]
+        genes_to_seqid[gene] = gene_seqid
+    return genes_to_seqid
+
+def get_rnas_to_seqid(
+    h5f: tables.File,
+    disable_bar: bool = False,
+) -> Dict[str, int]:
+    """
+    Creates a mapping of gene names to sequence IDs .
+
+    :param h5f: The open HDF5 pangenome file containing gene sequence data.
+    :param disable_bar: Boolean flag to disable the progress bar if set to True.
+    :return: A dictionary mapping gene names (strings) to sequence IDs .
+    """
+
+    rnas_to_seqid= defaultdict()
+    seqid_rnas_seq_table = h5f.root.annotations.rnaSequences
+    for row in tqdm(
+        read_chunks(seqid_rnas_seq_table, chunk=20000),
+        total=seqid_rnas_seq_table.nrows,
+        unit="rna",
+        disable=disable_bar,
+    ):
+        rna = row["rna"].decode()
+        rna_seqid = row["seqid"]
+        rnas_to_seqid[rna] = rna_seqid
+    return rnas_to_seqid
+
+
+def get_intergenics_to_seqid(
+    h5f: tables.File,
+    disable_bar: bool = False,
+) -> Dict[str, int]:
+    """
+    Creates a mapping of gene names to sequence IDs .
+
+    :param h5f: The open HDF5 pangenome file containing gene sequence data.
+    :param disable_bar: Boolean flag to disable the progress bar if set to True.
+    :return: A dictionary mapping gene names (strings) to sequence IDs .
+    """
+
+    intergenics_to_seqid = defaultdict()
+    seqid_interg_seq_table = h5f.root.annotations.intergenicSequences
+    for row in tqdm(
+        read_chunks(seqid_interg_seq_table, chunk=20000),
+        total=seqid_interg_seq_table.nrows,
+        unit="intergenic",
+        disable=disable_bar,
+    ):
+        intergenic_id = row["intergenic_id"].decode()
+        interg_seqid = row["seqid"]
+        intergenics_to_seqid[intergenic_id] = interg_seqid
+    return intergenics_to_seqid
+
+""" Function to create the dictionnary {gene_fam -> [genes]}"""
+def get_fam_to_genes(
+        h5f: tables.File,
+        disable_bar: bool = False,
+):
+    """
+    Creates a mapping of gene_families to gene ids.
+
+    :param h5f: The open HDF5 pangenome file containing gene sequence data.
+    :param disable_bar: Boolean flag to disable the progress bar if set to True.
+    :return: A dictionary mapping gene_families to lists of gene ids.
+    """
+
+    fam_to_genes = defaultdict(list)
+    if "/geneFamilies" not in h5f:
+        logging.getLogger("PPanGGOLiN").warning(
+            "No gene family info found in the pangenome file."
+        )
+        return
+    fam_genes_table = h5f.root.geneFamilies
+
+    for row in tqdm(
+        read_chunks(fam_genes_table, chunk=20000),
+        total=fam_genes_table.nrows,
+        unit="fam",
+        disable=disable_bar,
+    ):
+        fam_to_genes[row["geneFam"].decode()].append(row["gene"].decode())
+
+    return fam_to_genes
+
+def get_fam_to_rnas(
+        h5f: tables.File,
+        disable_bar: bool = False,
+):
+    """
+    Creates a mapping of rna_families to rna ids.
+
+    :param h5f: The open HDF5 pangenome file containing rna sequence data.
+    :param disable_bar: Boolean flag to disable the progress bar if set to True.
+    :return: A dictionary mapping rna_families to lists of rna ids.
+    """
+
+    fam_to_rnas = defaultdict(list)
+    if "/rnaFamilies" not in h5f:
+        logging.getLogger("PPanGGOLiN").warning(
+            "No rna family info found in the pangenome file."
+        )
+        return
+    fam_rnas_table = h5f.root.rnaFamilies
+
+    for row in tqdm(
+        read_chunks(fam_rnas_table, chunk=20000),
+        total=fam_rnas_table.nrows,
+        unit="fam",
+        disable=disable_bar,
+    ):
+        fam_to_rnas[row["rnaFam"].decode()].append(row["rna"].decode())
+
+    return fam_to_rnas
+
+def get_seqid_to_dna(
+    h5f:tables.File,
+    disable_bar:bool = False
+):
+    """
+        Creates a mapping of seqids to sequence.
+
+        :param h5f: The open HDF5 pangenome file containing rna sequence data.
+        :param disable_bar: Boolean flag to disable the progress bar if set to True.
+        :return: A dictionary mapping seqids to sequence.
+        """
+    seqid_to_dna = defaultdict()
+    if "/annotations/sequences" not in h5f:
+        logging.getLogger("PPanGGOLiN").warning(
+            "No sequences found in the pangenome file."
+        )
+        return
+    seqid_table = h5f.root.annotations.sequences
+    for row in tqdm(
+        read_chunks(seqid_table, chunk=20000),
+        total=seqid_table.nrows,
+        unit="seqid",
+        disable=disable_bar,
+    ):
+        seqid = row["seqid"]
+        dna = row["dna"].decode(errors="ignore")
+        seqid_to_dna[seqid] = dna
+
+    return seqid_to_dna
+
+def get_edges_to_intergenics(
+        pangenome:Pangenome,
+        h5f:tables.File,
+        disable_bar:bool = False,
+):
+    """
+    Creates a mapping of edges to intergenics.
+    :param pangenome: Pangenome object
+    :param h5f: The open HDF5 pangenome file containing the edges information.
+    :param disable_bar: Boolean flag to disable the progress bar if set to True.
+
+    Returns: a dictionnary mapping edges to intergenics ID or intergenic region (Union[Intergenic,Gene,RNA]).
+
+    """
+    edges_to_intergenics = defaultdict(list)
+    if "/edges" not in h5f:
+        logging.getLogger("PPanGGOLiN").warning(
+            "No edges found in the pangenome file."
+        )
+        return
+
+    feature_edges_table = h5f.root.edges
+    for row in tqdm(
+        read_chunks(feature_edges_table, chunk=20000),
+        total=feature_edges_table.nrows,
+        unit="feature_edge",
+        disable=disable_bar,
+    ):
+        name = row["name"].decode()
+
+        #source, target = map(int, name.split("|"))
+        #source = pangenome.get_feature(row["featureSource"].decode()).family
+        #target = pangenome.get_feature(row["featureTarget"].decode()).family
+        intergenic_chain = row["intergenic_chain"].decode().split(",")
+
+        edges_to_intergenics[name].append(intergenic_chain)
+
+    return edges_to_intergenics
+
 
 def write_genes_seq_from_pangenome_file(
     h5f: tables.File,
@@ -868,10 +1072,9 @@ def write_fasta_prot_fam_from_pangenome_file(
     partition_filter = False
     family_to_write = []
 
-    with (
-        tables.open_file(pangenome_filename, "r", driver_core_backing_store=0) as h5f,
-        write_compressed_or_not(outpath, compress) as fasta,
-    ):
+    with tables.open_file(
+        pangenome_filename, "r", driver_core_backing_store=0
+    ) as h5f, write_compressed_or_not(outpath, compress) as fasta:
 
         if family_filter in ["all", "persistent", "shell", "cloud"]:
             partition_filter = True
@@ -916,6 +1119,46 @@ def write_fasta_prot_fam_from_pangenome_file(
         f"Done writing the representative amino acid sequences of the gene families:"
         f"'{outpath}{'.gz' if compress else ''}'"
     )
+
+def write_fasta_rnafam_from_pangenome_file(
+        pangenome_filename: str,
+        output: Path,
+        compress: bool = False,
+        disable_bar=False,
+):
+    """
+       Write representative sequences of rna families.
+
+       :param pangenome: Pangenome object with gene families sequences
+       :param output: Path to output directory
+       :param compress: Compress the file in .gz
+       """
+    outpath = output / f"rna_fam_sequences.fna{'.gz' if compress else ''}"
+    print("Done creating the folder")
+
+    with tables.open_file(pangenome_filename, "r", driver_core_backing_store=0) as h5f:
+        if "/rnaFamiliesInfo" not in h5f:
+            logging.getLogger("PPanGGOLiN").warning(
+                "No rna family info found in the pangenome file."
+            )
+            return
+
+        rnaFam_table = h5f.root.rnaFamiliesInfo
+        print(f"Number of rows in RNA family table: {rnaFam_table.nrows}")
+
+
+        with write_compressed_or_not(file_path=outpath, compress=compress) as file_obj:
+            for row in tqdm(
+                    read_chunks(rnaFam_table, chunk=20000),
+                    total=rnaFam_table.nrows,
+                    unit="rnafamily",
+                    disable=disable_bar,
+            ):
+                rnaFam_name = row["name"].decode()
+                rnaFam_seq = row["sequence"].decode(errors="ignore")
+
+                file_obj.write(f">{rnaFam_name}\n")
+                file_obj.write(f"{rnaFam_seq}\n")
 
 
 def write_genes_from_pangenome_file(
@@ -985,6 +1228,203 @@ def write_genes_from_pangenome_file(
         f"of the gene families : '{outpath}{'.gz' if compress else ''}"
     )
 
+def write_gene_families_fasta_files(
+    pangenome_filename: str,
+    output_dir: Path,
+    compress: bool = False,
+    disable_bar: bool = False,
+):
+    """
+     Write for each gene family a fasta file of all genes nucleotide sequence
+
+    :param pangenome_filename: the hdf5 file
+    :param output_dir: Path to output directory
+    :param compress: Compress the file in .gz
+    :param disable_bar: Disable progress bar
+
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with tables.open_file(pangenome_filename, "r", driver_core_backing_store=0) as h5f:
+
+        fam_to_genes = get_fam_to_genes(h5f, disable_bar=disable_bar)
+
+        seqid_to_dna   = get_seqid_to_dna(h5f, disable_bar=disable_bar)
+
+        gene_to_fam = {
+            gid: fam
+            for fam, genes in fam_to_genes.items()
+            for gid in genes
+        }
+        # pen one FASTA per family
+        with ExitStack() as stack:
+            handles = {
+                fam: stack.enter_context(
+                    write_compressed_or_not(output_dir / f"{fam}.fasta", compress)
+                )
+                for fam in fam_to_genes
+            }
+
+            # stream the geneSequences table once, dispatch each record
+            gene_seq_table = h5f.root.annotations.geneSequences
+            with tqdm(total=gene_seq_table.nrows, unit="gene", disable=disable_bar) as pbar:
+                for row in read_chunks(table=gene_seq_table, chunk=20000):
+                    seqid = row["seqid"]
+                    gene_id = row["gene"].decode()
+                    fam = gene_to_fam.get(gene_id)
+                    if fam is None:
+                        continue
+                    dna = seqid_to_dna.get(seqid)
+                    if not dna:
+                        continue
+                    fh = handles[fam]
+                    fh.write(f">{gene_id}\n")
+                    fh.write(f"{dna}\n")
+
+    logging.getLogger("PPanGGOLIN").info("Done writing the fasta files for all gene families")
+
+def write_rna_families_fasta_files(
+    pangenome_filename: str,
+    output_dir: Path,
+    compress: bool = False,
+    disable_bar: bool = False,
+):
+    """
+    For each RNA family, write a FASTA file containing all its RNAs' sequences.
+
+    :param pangenome_filename: the hdf5 file
+    :param output_dir: Path to output directory
+    :param compress: Compress the file in .gz
+    :param disable_bar: Disable progress bar
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    with tables.open_file(pangenome_filename, "r", driver_core_backing_store=0) as h5f:
+
+        fam_to_rnas = get_fam_to_rnas(h5f, disable_bar=disable_bar)
+
+        rna_to_fam = {
+            rna_id: fam
+            for fam, rnas in fam_to_rnas.items()
+            for rna_id in rnas
+        }
+
+        seqid_to_dna = get_seqid_to_dna(h5f, disable_bar=disable_bar)
+
+        # open one FASTA per family
+        with ExitStack() as stack:
+            file_handles = {
+                fam: stack.enter_context(
+                    write_compressed_or_not(output_dir / f"{fam}.fasta", compress)
+                )
+                for fam in fam_to_rnas
+            }
+
+            # stream through rnaSequences table in chunks
+            rna_seq_table = h5f.root.annotations.rnaSequences
+            total = rna_seq_table.nrows
+
+            with tqdm(total=total, unit="rna", disable=disable_bar) as pbar:
+                for row in read_chunks(table=rna_seq_table, chunk=20000):
+
+                    seqid  = row["seqid"]
+                    rna_id = row["rna"].decode()
+
+                    fam = rna_to_fam.get(rna_id)
+                    if fam is None:
+                        pbar.update(1)
+                        continue
+
+                    dna = seqid_to_dna.get(seqid)
+                    if dna is None:
+                        pbar.update(1)
+                        continue
+
+                    fh = file_handles[fam]
+                    fh.write(f">{rna_id}\n")
+                    fh.write(f"{dna}\n")
+
+    logging.getLogger("PPanGGOLIN").info("Done writing the fasta files for all rna families")
+
+
+def write_edges_fasta_files(
+    pangenome:Pangenome,
+    pangenome_filename: str,
+    output_dir: Path,
+    compress: bool = False,
+    disable_bar: bool = False,
+):
+    """
+    Writes nucleotide sequences for each edge into separate FASTA files.
+
+    :param pangenome_filename: the hdf5 file
+    :param output_dir: Path to output directory
+    :param compress: Compress the file in .gz
+    :param disable_bar: Disable progress bar
+
+    """
+    with tables.open_file(pangenome_filename, "r", driver_core_backing_store=0) as h5f:
+
+        edge_intergenics = get_edges_to_intergenics(pangenome,h5f,disable_bar=disable_bar)
+        intergenics_to_seq_id = get_intergenics_to_seqid(h5f,disable_bar=False)
+        genes_to_seq_id = get_genes_to_seqid(h5f, disable_bar=False)
+        rnas_to_seq_id = get_rnas_to_seqid(h5f, disable_bar=False)
+
+        feature_to_seqid = {
+            **intergenics_to_seq_id,
+            **genes_to_seq_id,
+            **rnas_to_seq_id,
+        }
+
+        seqid_to_dna = get_seqid_to_dna(h5f,disable_bar=disable_bar)
+
+        write_edges_seq_from_pangenome_file(edge_intergenics, feature_to_seqid,seqid_to_dna, output_dir, compress=compress)
+
+    logging.getLogger("PPanGGOLIN").info("Done writing the fasta files for all edges")
+
+
+def write_edges_seq_from_pangenome_file(
+        edge_intergenics,
+        feature_to_seqid,
+        seqid_to_dna,
+        output_dir,
+        compress:bool=False,
+):
+    """
+       Writes nucleotide sequences for each edge into FASTA files.
+
+       :param edge_intergenics: dictionary mapping edges to intergenic chain
+       :param feature_to_seqid: dictionary mapping every feature (rna, gene, intergenic) to seqid
+       :param seqid_to_dna: dictionary mapping seqid to dna sequence
+       :param compress: Compress the file in .gz
+       :param output_dir: output directory
+       :param disable_bar: Disable progress bar
+
+    """
+
+    for edge_name, intergenic_list in edge_intergenics.items():
+        outname = output_dir / f"{edge_name}.fasta"
+
+        with write_compressed_or_not(outname, compress) as file_obj:
+            for chain in intergenic_list:
+                seq_pieces = []
+                for feature in chain:
+                    edge_seq_id = feature_to_seqid.get(feature)
+                    if edge_seq_id is None:
+                        logging.warning(f"Feature {feature} not found in any seqid map; skipping.")
+                        continue
+                    dna_sequence = seqid_to_dna.get(edge_seq_id)
+                    if dna_sequence is None:
+                        logging.warning(
+                            f"[Warning] No DNA sequence found for seqid '{edge_seq_id}' (feature: {feature}). Skipping.")
+                        continue
+                    seq_pieces.append(dna_sequence)
+
+                # Write the feature as FASTA record
+                header_feats = "|".join(chain)
+                full_seq = "".join(seq_pieces)
+
+                file_obj.write(f">{header_feats}\n")
+                file_obj.write(f"{full_seq}\n")
 
 def write_intergenic_sequences_from_file(
         pangenome_filename: str,
@@ -1139,14 +1579,11 @@ def get_seqid_to_rnas(
     disable_bar: bool = False,
 ) -> Dict[int, List[str]]:
     """
-    Creates a mapping of sequence IDs to intergenics ID.
+    Creates a mapping of sequence IDs to rnas ID.
 
     :param h5f: The open HDF5 pangenome file containing gene sequence data.
-    :param genes: A list of gene names to include in the mapping (if `get_all_genes` is False).
-    :param get_all_genes: Boolean flag to indicate if all genes should be included in the mapping.
-                          If set to True, all genes will be added regardless of the `genes` parameter.
     :param disable_bar: Boolean flag to disable the progress bar if set to True.
-    :return: A dictionary mapping sequence IDs (integers) to lists of intergenics id (strings).
+    :return: A dictionary mapping sequence IDs  to lists of rnas id (strings).
     """
 
     seq_id_to_rnas = defaultdict(list)
@@ -1169,10 +1606,7 @@ def get_seqid_to_intergenics(
     """
     Creates a mapping of sequence IDs to intergenics ID.
 
-    :param h5f: The open HDF5 pangenome file containing gene sequence data.
-    :param genes: A list of gene names to include in the mapping (if `get_all_genes` is False).
-    :param get_all_genes: Boolean flag to indicate if all genes should be included in the mapping.
-                          If set to True, all genes will be added regardless of the `genes` parameter.
+    :param h5f: The open HDF5 pangenome file containing intergenic sequence data.
     :param disable_bar: Boolean flag to disable the progress bar if set to True.
     :return: A dictionary mapping sequence IDs (integers) to lists of intergenics id (strings).
     """
@@ -1192,7 +1626,7 @@ def get_seqid_to_intergenics(
 
 def read_graph(pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False):
     """
-    Read information about graph in pangenome hdf5 file to add in pangenome object
+    Read information about feature graph in pangenome hdf5 file to add in pangenome object
 
     :param pangenome: Pangenome object without graph information
     :param h5f: Pangenome HDF5 file with graph information
@@ -1205,22 +1639,22 @@ def read_graph(pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False
         "Loaded",
     ] or pangenome.status["genesClustered"] not in ["Computed", "Loaded"]:
         raise Exception(
-            "It's not possible to read the graph "
-            "if the annotations and the gene families have not been loaded."
+            "It's not possible to read the all features graph "
+            "if the annotations and the gene families, rna families , edges have not been loaded."
         )
     for row in tqdm(
-            read_chunks(table, chunk=20000),
-            total=table.nrows,
-            unit="contig features adjacency",
-            disable=disable_bar,
+        read_chunks(table, chunk=20000),
+        total=table.nrows,
+        unit="contig features adjacency",
+        disable=disable_bar,
     ):
         source = pangenome.get_feature(row["featureSource"].decode())
         target = pangenome.get_feature(row["featureTarget"].decode())
         intergenics_list = row["intergenic_chain"].decode().split(",")
         intergenic_chain = [pangenome.get_feature(elem) for elem in intergenics_list]
-        feat_edge = pangenome.add_edge(source, target)
-        feat_edge.add_intergenic(tuple(intergenic_chain))
-    pangenome.status["neighborsGraph"] = "Loaded"
+        edge = pangenome.add_edge(source, target)
+        edge.add_intergenic_chain(tuple(intergenic_chain))
+    logging.getLogger("PPanGGOLiN").info("Feature graph data loaded in pangenome")
 
 
 def read_gene_families(
@@ -1347,7 +1781,7 @@ def read_rna_families_info(
         disable=disable_bar,
     ):
         fam = pangenome.get_rna_family(row["name"].decode())
-        fam.add_sequence(row["sequence"].decode())
+        fam.add_sequence(row["sequence"].decode(errors="ignore"))
 
 
 def read_gene_sequences(
@@ -1431,7 +1865,7 @@ def read_intergenic_sequences(
         unit="intergenic",
         disable=disable_bar,
     ):
-        intergenic = pangenome.get_intergenic(row["intergenic"].decode())
+        intergenic = pangenome.get_intergenic(row["intergenic_id"].decode())
         intergenic.add_sequence(seqid2seq[row["seqid"]])
     logging.getLogger("PPanGGOLiN").info("Intergenic sequences are loaded.")
 
@@ -1691,6 +2125,94 @@ def read_rnas(
             rna.fill_parents(contig.organism, contig)
             contig.add_rna(rna)
 
+def read_intergenics(
+    pangenome: Pangenome,
+    table: tables.Table,
+    intergenicdata_dict: Dict[int, Intergenicdata],
+    link: bool = True,
+    chunk_size: int = 20000,
+    disable_bar: bool = False,
+):
+    """Read intergenics in pangenome file to add them to the pangenome object
+
+        :param pangenome: Pangenome object
+        :param table: intergenics table
+        :param intergenicdata_dict: Dictionary to link intergenicdata with intergene
+        :param link: Allow to link intergenic to organism and contig
+        :param chunk_size: Size of the chunk reading
+        :param disable_bar: Disable progress bar
+        """
+    for row in tqdm(
+            read_chunks(table, chunk=chunk_size),
+            total=table.nrows,
+            unit="intergenic",
+            disable=disable_bar,
+    ):
+        intergenic = Intergenic(row["ID"].decode(), row["is_border"])
+        intergenicdata = intergenicdata_dict[row["intergenicdata_id"]]
+
+
+        raw_start = intergenicdata.start
+        raw_stop  = intergenicdata.stop
+        offset = intergenicdata.offset
+
+        contig = pangenome.get_contig(int(row["contig"]))
+        is_circ = True if contig.is_circular else False
+        contig_len = getattr(contig, "length", None)  # assumed set elsewhere
+
+        if is_circ and raw_start > raw_stop:
+            coords = [
+                (raw_start, contig_len),
+                (1, raw_stop)
+            ]
+        else:
+            coords = [(raw_start, raw_stop)]
+
+        for (s0, e0) in coords:
+            if e0 < s0:
+                logging.warning(
+                    f"Skipping segment ({s0},{e0}) in intergenic {intergenicdata} "
+                    f"because stop < start."
+                )
+            if s0 < 1 or e0 < 1:
+                logging.warning(
+                    f"Skipping segment ({s0},{e0}) in intergenic {intergenicdata} "
+                    f"because coords < 1."
+                )
+
+        start, stop = coords[0][0], coords[-1][1]
+
+        intergenic.fill_annotations(
+            start=start,
+            stop=stop,
+            strand="+",
+            coordinates=coords,
+        )
+
+        sid = intergenicdata.source_id
+        if sid not in (None, "", "None"):
+            try:
+                source_feat = pangenome.get_feature(sid)  # Gene ou RNA
+            except KeyError:
+                logging.warning(f"Source '{sid}' not found in pangenome; leaving source = None.")
+                source_feat = None
+            intergenic.source = source_feat
+
+        tid = intergenicdata.target_id
+        if tid not in (None, "", "None"):
+            try:
+                target_feat = pangenome.get_feature(tid)
+            except KeyError:
+                logging.warning(f"Target '{tid}' not found in pangenome; leaving target = None.")
+                target_feat = None
+            intergenic.target = target_feat
+
+        intergenic.offset = offset
+
+        if link:
+                contig = pangenome.get_contig(int(row["contig"]))
+                intergenic.fill_parents(contig.organism, contig)
+                contig.add_intergenic(intergenic)
 
 def read_intergenics(
     pangenome: Pangenome,
@@ -2082,7 +2604,8 @@ def read_pangenome(
                 f"or has been improperly filled"
             )
     if rna_sequences:
-        if h5f.root.status._v_attrs.rnaSequences:
+        if h5f.root.status._v_attrs.geneSequences:
+
             logging.getLogger("PPanGGOLiN").info(
                 "Reading pangenome rna dna sequences..."
             )
@@ -2093,7 +2616,7 @@ def read_pangenome(
                 f"or has been improperly filled"
             )
     if intergenic_sequences:
-        if h5f.root.status._v_attrs.intergenicSequences:
+        if h5f.root.status._v_attrs.geneSequences:
             logging.getLogger("PPanGGOLiN").info(
                 "Reading pangenome intergenic dna sequences..."
             )
@@ -2115,7 +2638,7 @@ def read_pangenome(
             )
 
     if rna_families:
-        if h5f.root.status._v_attrs.rnasClustered:
+        if h5f.root.status._v_attrs.genesClustered:
             logging.getLogger("PPanGGOLiN").info("Reading pangenome rna families...")
             read_rna_families(pangenome, h5f, disable_bar=disable_bar)
             read_rna_families_info(pangenome, h5f, disable_bar=disable_bar)

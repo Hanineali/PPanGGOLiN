@@ -380,7 +380,6 @@ def intergenicdata_desc(
         "start": tables.UInt32Col(),
         "stop": tables.UInt32Col(),
         "offset": tables.UInt32Col(),
-        "neighbors": tables.StringCol(itemsize=512), # a revoir
     }
 
 
@@ -483,21 +482,21 @@ def get_intergenicdata(feature: Intergenic) -> Intergenicdata:
 
     :param feature: should be an intergenic object
 
-    :return: Tuple with a Feature associated data
+    :return: Intergenicdata object
     """
-    if isinstance(feature, Intergenic):
+    if not isinstance(feature, Intergenic):
+        raise TypeError("Expected an Intergenic object.")
+
         # Handle None source and target
-        source_id = feature.source.ID if feature.source else "None"
-        target_id = feature.target.ID if feature.target else "None"
+    source_id = feature.source.ID if (feature.source is not None) else ""
+    target_id = feature.target.ID if (feature.target is not None) else ""
     return Intergenicdata(
-        source_id,
-        target_id,
-        feature.start,
-        feature.stop,
-        feature.edge,
-        feature.offset,
-        tuple(feature.neighbors),
-        coordinates=feature.coordinates,
+        source_id=source_id,
+        target_id=target_id,
+        start=feature.start,
+        stop=feature.stop,
+        offset=feature.offset,
+        coordinates=feature.coordinates
     )
 
 
@@ -545,7 +544,6 @@ def write_gene_joined_coordinates(
 
     joined_coordinates_tables.flush()
 
-
 def write_intergenicdata(
     pangenome: Pangenome,
     h5f: tables.File,
@@ -576,6 +574,7 @@ def write_intergenicdata(
         "(can be lower than the number of intergenics)"
     )
 
+
     intergenicdata_row = intergenicdata_table.row
     for intergenicdata, intergenicdata_id in tqdm(
         intergenic_data_map.items(),
@@ -588,8 +587,6 @@ def write_intergenicdata(
         intergenicdata_row["start"] = intergenicdata.start
         intergenicdata_row["stop"] = intergenicdata.stop
         intergenicdata_row["offset"] = intergenicdata.offset
-        intergenicdata_row["neighbors"] = ",".join(map(str, intergenicdata.neighbors))
-
 
         intergenicdata_row.append()
 

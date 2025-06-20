@@ -252,7 +252,6 @@ class Feature(MetaFeatures):
                 self.contig = contig
             else:
                 raise AssertionError("You should provide at least organism or contig")
-
     def add_sequence(self, sequence):
         """Add a sequence to feature
 

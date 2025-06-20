@@ -208,14 +208,14 @@ def write_rna_fam_info(
     )
 
     row = rna_fam_seq.row
-    for fam in tqdm(
+    for rnafam in tqdm(
         pangenome.rna_families,
         total=pangenome.number_of_rna_families,
         unit="rna family",
         disable=disable_bar,
     ):
-        row["name"] = fam.name
-        row["sequence"] = fam.sequence
+        row["name"] = rnafam.name
+        row["sequence"] = rnafam.sequence
         row.append()
     rna_fam_seq.flush()
 
@@ -374,6 +374,7 @@ def graph_desc(
     :return: formatted table
     """
     return {
+        "name": tables.StringCol(itemsize=max_feature_id_len),
         "featureSource": tables.StringCol(itemsize=max_feature_id_len),
         "featureTarget": tables.StringCol(itemsize=max_feature_id_len),
         "organism": tables.StringCol(itemsize=max_organism_len),
@@ -441,12 +442,12 @@ def write_graph(
        :param disable_bar: Disable progress bar
     """
 
-    if "/features_edges" in h5f and force is True:
+    if "/edges" in h5f and force is True:
         logging.getLogger("PPanGGOLiN").info("Erasing the formerly computed features edges")
-        h5f.remove_node("/", "features_edges")
+        h5f.remove_node("/", "edges")
     edge_table = h5f.create_table(
         "/",
-        "features_edges",
+        "edges",
         graph_desc(*get_feature_id_len(pangenome)),
         expectedrows=pangenome.number_of_edges,
     )
@@ -467,6 +468,7 @@ def write_graph(
 
                 intergenic_ids = [getattr(feat, 'ID', str(feat)) for feat in intergenic_chain]
 
+                edge_row["name"] = edge.name
                 edge_row["featureSource"] = feat1.ID
                 edge_row["featureTarget"] = feat2.ID
                 edge_row["organism"] = org_name

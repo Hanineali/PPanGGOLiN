@@ -1540,6 +1540,9 @@ def chose_gene_identifiers(pangenome: Pangenome) -> bool:
                 ""  # this is now useless, setting it to default value
             )
         pangenome._mk_gene_getter()  # re-build the gene getter
+        pangenome._mk_rna_getter()
+        pangenome._mk_intergenic_getter()
+
         return True
 
     else:
@@ -1713,10 +1716,10 @@ def get_gene_sequences_from_fastas(
         )
 
     with tqdm(
-        total=pangenome.number_of_genes,
-        unit="gene",
+        total=pangenome.number_of_genes + pangenome.number_of_rnas,
+        unit="feature (gene/rna)",
         disable=disable_bar,
-        desc="Add sequences to genes",
+        desc="Add sequences to genes and rnas and create intergenics",
     ) as bar:
         for org in pangenome.organisms:
             for contig in org.contigs:
