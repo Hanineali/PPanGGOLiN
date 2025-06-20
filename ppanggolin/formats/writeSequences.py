@@ -5,7 +5,8 @@ import argparse
 import logging
 import re
 from pathlib import Path
-from typing import Dict, Iterable, Union
+from pyexpat import features
+from typing import Dict, Iterable, Union, Sequence
 import tempfile
 import shutil
 from xml.sax.handler import all_features
@@ -19,7 +20,7 @@ import numpy as np
 import subprocess
 import os
 
-from ppanggolin import pangenome
+from ppanggolin import pangenome, edge
 from ppanggolin.formats import read_pangenome
 # local libraries
 from ppanggolin.pangenome import Pangenome
@@ -43,7 +44,8 @@ from ppanggolin.formats.readBinaries import (
     write_intergenic_sequences_from_file,
     write_rna_sequences_from_pangenome_file,
     write_rna_product_from_pangenome_file,
-    write_rnas_sequences_from_file, write_fasta_rnafam_from_pangenome_file
+    write_rnas_sequences_from_file, write_fasta_rnafam_from_pangenome_file, write_edges_fasta_files,
+    write_gene_families_fasta_files, write_rna_families_fasta_files
 )
 
 module_regex = re.compile(r"^module_\d+")  # \d == [0-9]
@@ -55,6 +57,9 @@ poss_values = [
     "rgp",
     "softcore",
     "core",
+    "geneFam",
+    "rnaFam",
+    "edges",
     module_regex,
 ]
 poss_values_log = f"Possible values are {', '.join(poss_values[:-1])}, module_X with X being a module id."
@@ -732,6 +737,77 @@ def write_regions_sequences(
         f"'{outname}{'.gz' if compress else ''}'"
     )
 
+def write_fastas_per_family(
+    pangenome_filename: str,
+    output: Path,
+    feat_filter: Union[None, str, Sequence[str]] = None,
+    compress: bool = False,
+    disable_bar: bool = False,
+):
+    """
+    Write FASTAs per feature-type according to feat_filter.
+    :param pangenome_filename: the hdf5 file
+    :param output: Path to output directory
+    :param feat_filter: one of "geneFam", "rnaFam", "edges", or "all";
+                        or a list of these strings.
+                        If None, defaults to ["all"].
+    :param compress: Compress the file in .gz
+    :param disable_bar: Disable progress bar
+    """
+    allowed = {"geneFam", "rnaFam", "edges", "all"}
+
+    # Normalize to a list of filters
+    if feat_filter is None:
+        filters = ["all"]
+    elif isinstance(feat_filter, str):
+        filters = [feat_filter]
+    else:
+        filters = list(feat_filter)
+
+    invalid = [f for f in filters if f not in allowed]
+    if invalid:
+        raise ValueError(f"Invalid feat_filter(s): {invalid}. Must be one of {allowed}.")
+
+
+    do_gene  = "all" in filters or "geneFam" in filters
+    do_rna   = "all" in filters or "rnaFam"  in filters
+    do_edges = "all" in filters or "edges"   in filters
+
+    # Gene families
+    if do_gene:
+        gf_dir = output / "geneFam"
+        mk_outdir(gf_dir, force=True, exist_ok=True)
+        write_gene_families_fasta_files(
+            pangenome_filename=pangenome_filename,
+            output_dir=gf_dir,
+            compress=compress,
+            disable_bar=disable_bar,
+        )
+
+    # RNA families
+    if do_rna:
+        rf_dir = output/ "rnaFam"
+        mk_outdir(rf_dir, force=True, exist_ok=True)
+        write_rna_families_fasta_files(
+            pangenome_filename=pangenome_filename,
+            output_dir=rf_dir,
+            compress=compress,
+            disable_bar=disable_bar,
+        )
+
+    # Edges
+    if do_edges:
+        ed_dir = output / "edges"
+        mk_outdir(ed_dir, force=True, exist_ok=True)
+        write_edges_fasta_files(
+            pangenome=pangenome,
+            pangenome_filename=pangenome_filename,
+            output_dir=ed_dir,
+            compress=compress,
+            disable_bar=disable_bar,
+        )
+
+
 def write_sequence_files(
     pangenome: Pangenome,
     output: Path,
@@ -746,6 +822,7 @@ def write_sequence_files(
     gene_families: str = None,
     prot_families: str = None,
     rna_families: str = None,
+    features:str = None,
     compress: bool = False,
     disable_bar: bool = False,
     **translate_kwgs,
@@ -890,6 +967,19 @@ def write_sequence_files(
             pangenome, output, regions, fasta, anno, compress, disable_bar
         )
 
+    if features is not None:
+        logging.getLogger("PPanGGOLiN").info(
+            "Writing features nucleotide sequences per family by reading the pangenome file directly."
+        )
+        write_fastas_per_family(
+            pangenome_filename=pangenome.file,
+            output=output,
+            feat_filter=features,
+            compress=compress,
+            disable_bar=disable_bar,
+        )
+
+
 def launch(args: argparse.Namespace):
     """
     Command launcher
@@ -921,6 +1011,7 @@ def launch(args: argparse.Namespace):
         gene_families=args.gene_families,
         prot_families=args.prot_families,
         rna_families=args.rnas_families,
+        features=args.features,
         compress=args.compress,
         disable_bar=args.disable_prog_bar,
         **translate_kwgs
@@ -1068,6 +1159,12 @@ def parser_seq(parser: argparse.ArgumentParser):
         type=restricted_float,
         default=0.95,
         help="Soft core threshold to use if 'softcore' partition is chosen",
+    )
+    onereq.add_argument(
+        "--features",
+        required=False,
+        type=filter_values,
+        help=f"Write features family all nucleotide sequences. {poss_values_log}",
     )
     optional.add_argument(
         "--compress",
