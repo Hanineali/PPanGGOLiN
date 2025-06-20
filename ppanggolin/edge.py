@@ -46,6 +46,8 @@ class Edge:
             )
         self.source = source_feature.family
         self.target = target_feature.family
+        src, tgt = sorted((self.source.name, self.target.name))
+        self.name = f"{src} | {tgt}"
         #self.intergenics=[]
         self.source.set_edge(self.target, self)
         self.target.set_edge(self.source, self)
