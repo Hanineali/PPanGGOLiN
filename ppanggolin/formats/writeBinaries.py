@@ -374,6 +374,7 @@ def graph_desc(
     :return: formatted table
     """
     return {
+        "name": tables.StringCol(itemsize=max_feature_id_len),
         "featureSource": tables.StringCol(itemsize=max_feature_id_len),
         "featureTarget": tables.StringCol(itemsize=max_feature_id_len),
         "organism": tables.StringCol(itemsize=max_organism_len),
@@ -467,6 +468,7 @@ def write_graph(
 
                 intergenic_ids = [getattr(feat, 'ID', str(feat)) for feat in intergenic_chain]
 
+                edge_row["name"] = edge.name
                 edge_row["featureSource"] = feat1.ID
                 edge_row["featureTarget"] = feat2.ID
                 edge_row["organism"] = org_name
