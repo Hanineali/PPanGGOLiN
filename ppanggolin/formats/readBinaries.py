@@ -2237,7 +2237,7 @@ def read_intergenics(
             unit="intergenic",
             disable=disable_bar,
     ):
-        intergenic = Intergenic(row["ID"].decode(), row["is_border"].decode())
+        intergenic = Intergenic(row["ID"].decode(), row["is_border"])
         intergenicdata = intergenicdata_dict[row["intergenicdata_id"]]
         if intergenicdata.start > intergenicdata.stop:
             logging.warning(
@@ -2258,7 +2258,7 @@ def read_intergenics(
         )
         intergenic.source.ID = intergenicdata.source_id
         intergenic.target.ID = intergenicdata.target_id
-        intergenic.edge = intergenicdata.edge
+        #intergenic.edge = intergenicdata.edge
         intergenic.offset = intergenicdata.offset
 
         if link:
