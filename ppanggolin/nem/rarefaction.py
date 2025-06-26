@@ -595,6 +595,7 @@ def make_rarefaction_curve(
         pangenome,
         need_annotations=True,
         need_families=True,
+        need_rna_families=True,
         need_graph=True,
         disable_bar=disable_bar,
     )
