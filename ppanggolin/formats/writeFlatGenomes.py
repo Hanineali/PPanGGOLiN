@@ -765,6 +765,7 @@ def write_flat_genome_files(
         "need_rna_sequences": True,
         "need_intergenic_sequences": True,
         "need_families": True,
+        "need_rna_families": True,
         "need_partitions": True,
         "need_rgp": True if pangenome.status["predictedRGP"] != "No" else False,
         "need_spots": True if pangenome.status["spots"] != "No" else False,
