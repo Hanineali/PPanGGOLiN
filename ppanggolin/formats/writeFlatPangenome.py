@@ -36,6 +36,7 @@ from ppanggolin.formats.readBinaries import check_pangenome_info
 pan = Pangenome()  # TODO change to pangenome:Pangenome = Pangenome=() ?
 needAnnotations = False
 needFamilies = False
+needRNAFamilies = False
 needGraph = False
 needPartitions = False
 needSpots = False
@@ -1397,6 +1398,7 @@ def write_pangenome_flat_files(
     global pan
     global needAnnotations
     global needFamilies
+    global needRNAFamilies
     global needGraph
     global needPartitions
     global needSpots
@@ -1425,6 +1427,7 @@ def write_pangenome_flat_files(
     ):
         needAnnotations = True
         needFamilies = True
+        needRNAFamilies = True
     if stats or partitions or spots or borders:
         needPartitions = True
     if gexf or light_gexf or json or stats:
@@ -1448,6 +1451,7 @@ def write_pangenome_flat_files(
         pangenome,
         need_annotations=needAnnotations,
         need_families=needFamilies,
+        need_rna_families=needRNAFamilies,
         need_graph=needGraph,
         need_partitions=needPartitions,
         need_rgp=needRegions,
