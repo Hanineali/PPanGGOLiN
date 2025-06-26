@@ -2256,8 +2256,10 @@ def read_intergenics(
             coordinates= intergenicdata.coordinates,
             strand = "+"
         )
-        intergenic.source.ID = intergenicdata.source_id if intergenicdata.source_id else None
-        intergenic.target.ID = intergenicdata.target_id if intergenicdata.target_id else None
+        if intergenic.source is not None and intergenicdata.source_id:
+            intergenic.source.ID = intergenicdata.source_id
+        if intergenic.target is not None and intergenicdata.target_id:
+            intergenic.target.ID = intergenicdata.target_id
         #intergenic.edge = intergenicdata.edge
         intergenic.offset = intergenicdata.offset
 
