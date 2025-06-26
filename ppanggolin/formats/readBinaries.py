@@ -2214,61 +2214,6 @@ def read_intergenics(
                 intergenic.fill_parents(contig.organism, contig)
                 contig.add_intergenic(intergenic)
 
-def read_intergenics(
-    pangenome: Pangenome,
-    table: tables.Table,
-    intergenicdata_dict: Dict[int, Intergenicdata],
-    link: bool = True,
-    chunk_size: int = 20000,
-    disable_bar: bool = False,
-):
-    """Read intergenics in pangenome file to add them to the pangenome object
-
-        :param pangenome: Pangenome object
-        :param table: intergenics table
-        :param intergenicdata_dict: Dictionary to link intergenicdata with intergene
-        :param link: Allow to link intergenic to organism and contig
-        :param chunk_size: Size of the chunk reading
-        :param disable_bar: Disable progress bar
-        """
-    for row in tqdm(
-            read_chunks(table, chunk=chunk_size),
-            total=table.nrows,
-            unit="intergenic",
-            disable=disable_bar,
-    ):
-        intergenic = Intergenic(row["ID"].decode(), row["is_border"])
-        intergenicdata = intergenicdata_dict[row["intergenicdata_id"]]
-        if intergenicdata.start > intergenicdata.stop:
-            logging.warning(
-                f"Wrong coordinates in intergenic: Start ({intergenicdata.start}) should not be greater than stop ({intergenicdata.stop}). This intergenic is ignored."
-            )
-            continue
-        if intergenicdata.start < 1 or intergenicdata.stop < 1:
-            logging.warning(
-                f"Wrong coordinates in intergenic: Start ({intergenicdata.start}) and stop ({intergenicdata.stop}) should be greater than 0.  This intergenic is ignored."
-            )
-            continue
-
-        intergenic.fill_annotations(
-            start=intergenicdata.start,
-            stop=intergenicdata.stop,
-            coordinates= intergenicdata.coordinates,
-            strand = "+"
-        )
-        if intergenic.source is not None and intergenicdata.source_id:
-            intergenic.source.ID = intergenicdata.source_id
-        if intergenic.target is not None and intergenicdata.target_id:
-            intergenic.target.ID = intergenicdata.target_id
-        #intergenic.edge = intergenicdata.edge
-        intergenic.offset = intergenicdata.offset
-
-        if link:
-            contig = pangenome.get_contig(int(row["contig"]))
-            intergenic.fill_parents(contig.organism, contig)
-            contig.add_intergenic(intergenic)
-
-
 def read_annotation(
     pangenome: Pangenome,
     h5f: tables.File,
