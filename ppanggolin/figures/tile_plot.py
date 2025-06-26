@@ -45,6 +45,7 @@ def draw_tile_plot(
         pangenome,
         need_annotations=True,
         need_families=True,
+        need_rna_families=True,
         need_graph=True,
         disable_bar=disable_bar,
         need_metadata=add_metadata,
