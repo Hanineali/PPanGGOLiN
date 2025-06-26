@@ -35,7 +35,7 @@ class TestEdge:
         gene1, gene2 = features_pair
         edge = Edge(gene1, gene2)
         assert edge.source == gene1.family
-        assert edge.target == rna2.family
+        assert edge.target == gene2.family
         assert edge.source._edges_getter[edge.target] == edge
         assert edge.target._edges_getter[edge.source] == edge
         assert list(edge.organisms) == [organism]

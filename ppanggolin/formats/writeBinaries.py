@@ -374,7 +374,7 @@ def graph_desc(
     :return: formatted table
     """
     return {
-        "name": tables.StringCol(itemsize=max_feature_id_len),
+        "name": tables.StringCol(itemsize=max_feature_id_len*2),
         "featureSource": tables.StringCol(itemsize=max_feature_id_len),
         "featureTarget": tables.StringCol(itemsize=max_feature_id_len),
         "organism": tables.StringCol(itemsize=max_organism_len),
