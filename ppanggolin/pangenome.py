@@ -502,6 +502,31 @@ class Pangenome:
         """
         return len(self._edge_getter)
 
+    def _mk_edge_name_getter(self):
+        """Builds the attribute _edge_name_getter of the pangenome."""
+        self._edge_name_getter = {}
+        for edge in self.edges:
+            print(edge.name)
+            self._edge_name_getter[edge.name] = edge
+
+    def get_edge_by_name(self, edge_name: str) -> Edge:
+        assert isinstance(edge_name, str)
+        try:
+            return self._edge_name_getter[edge_name]
+        except (AttributeError, KeyError):
+            # if the dict isn’t built yet, build it:
+            if not hasattr(self, "_edge_name_getter"):
+                self._mk_edge_name_getter()
+            # now, if it still fails, dump helpful info:
+            if edge_name not in self._edge_name_getter:
+                keys = list(self._edge_name_getter.keys())
+                raise KeyError(
+                    f"Edge name {edge_name!r} not found in pangenome. "
+                    f"Available names (first 10 of {len(keys)}): {keys[:10]!r}"
+                )
+            # otherwise re-raise
+            raise
+
     """Organism methods"""
 
     @property
