@@ -944,6 +944,46 @@ def update_gene_fragments(
             row.update()
     table.flush()
 
+def update_intergenicdata_edge(
+    pangenome: Pangenome,
+    h5f: tables.File,
+    disable_bar: bool = False,
+):
+    """
+    Update the intergenicdata table with edge information from the computed neighbors graph.
+
+    """
+    logger = logging.getLogger("PPanGGOLiN")
+    logger.info("Updating intergenicdata annotation with edges information")
+
+    intergenicid2_IGid = {}
+    for igr_row in h5f.root.annotations.intergenics:
+        igr_id = int(igr_row["intergenicdata_id"])
+        intergenicid2_IGid[igr_id] = igr_row["ID"].decode()
+
+    table = h5f.root.annotations.intergenicdata
+    for row in tqdm(
+        table,
+        total=table.nrows,
+        unit="intergenicdata",
+        disable=disable_bar,
+    ):
+        igr_id = int(row["intergenicdata_id"])
+        ig_id = intergenicid2_IGid.get(igr_id)
+        if ig_id is None:
+            # no matching intergenic region (shouldn't normally happen)
+            continue
+
+        try:
+            igr = pangenome.get_intergenic(ig_id)
+            edge_name = igr.edge.name if igr.edge is not None else ""
+        except KeyError:
+            # intergenic not in memory
+            edge_name = ""
+
+        row["edge_name"] = edge_name
+        row.update()
+
 
 def erase_pangenome(
     pangenome: Pangenome,
@@ -1169,6 +1209,7 @@ def write_pangenome(
             "Writing the edges of neighbors graph in pangenome..."
         )
         write_graph(pangenome, h5f, force, disable_bar=disable_bar)
+        update_intergenicdata_edge(pangenome, h5f, disable_bar=disable_bar)
         pangenome.status["neighborsGraph"] = "Loaded"
     if pangenome.status["partitioned"] == "Computed" and pangenome.status[
         "genesClustered"
