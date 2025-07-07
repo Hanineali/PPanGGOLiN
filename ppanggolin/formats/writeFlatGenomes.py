@@ -19,7 +19,7 @@ import pandas as pd
 
 # local libraries
 from ppanggolin.geneFamily import GeneFamily
-from ppanggolin.genome import Organism, Gene, RNA
+from ppanggolin.genome import Organism, Gene, RNA, Intergenic
 from ppanggolin.region import Region, Module
 from ppanggolin.pangenome import Pangenome
 from ppanggolin.rnaFamily import rnaFamily
@@ -343,14 +343,14 @@ def write_gff_file(
             outfile.write(contig_line_str + "\n")
 
             contig_elements = sorted(
-                list(contig.regions) + list(contig.genes) + list(contig.RNAs),
+                list(contig.regions) + list(contig.genes) + list(contig.RNAs) + list(contig.intergenics),
                 key=lambda x: x.start,
             )
 
             for feature in contig_elements:
                 phase = "."
 
-                if isinstance(feature, (Gene, RNA)):
+                if isinstance(feature, (Gene, RNA, Intergenic)):
                     feat_type = feature.type
 
                     strand = feature.strand
@@ -358,12 +358,16 @@ def write_gff_file(
                     source = annotation_sources.get(feat_type, "external")
 
                     # before the CDS or RNA line a gene line is created. with the following id
-                    parent_gene_id = f"gene-{feature.ID}"
+                    if isinstance(feature,(Gene,RNA)):
+                        parent_feat_id = f"gene-{feature.ID}"
+                    else:
+                        parent_feat_id = f"intergenic-{feature.ID}"
+
 
                     attributes = [
                         ("ID", feature.ID),
                         ("Name", feature.name),
-                        ("Parent", parent_gene_id),
+                        ("Parent", parent_feat_id),
                         ("product", feature.product),
                     ]
 
@@ -400,6 +404,43 @@ def write_gff_file(
                         attributes += gene_metadata
                         attributes += family_metadata
 
+                    if isinstance(feature, RNA):
+                        attributes += [
+                            ("family", feature.family.name),
+                        ]
+
+                        # adding attributes
+                        gene_metadata = [
+                            (f"rna_{key}", value)
+                            for key, value in feature.formatted_metadata_dict(
+                                metadata_sep
+                            ).items()
+                        ]
+                        family_metadata = [
+                            (f"family_{key}", value)
+                            for key, value in feature.family.formatted_metadata_dict(
+                                metadata_sep
+                            ).items()
+                        ]
+
+                        attributes += gene_metadata
+                        attributes += family_metadata
+
+                    if isinstance(feature, Intergenic):
+                        # if there's no edge, log and skip
+                        if feature.edge is None:
+                            """
+                            logging.getLogger("PPanGGOLiN").warning(
+                                f"Skipping intergenic region {feature.ID} on contig {contig.name}: no edge assigned."
+                            )
+                            """
+                            continue
+
+                        # otherwise, emit the edge attribute as before
+                        attributes += [
+                            ("Edge", feature.edge.name),
+                        ]
+
                     # add an extra line of type gene
                     stop = feature.stop
                     if feature.overlaps_contig_edge:
@@ -408,13 +449,13 @@ def write_gff_file(
                     gene_line = [
                         contig.name,
                         source,
-                        "gene",
+                        ('gene' if isinstance(feature,(Gene,RNA)) else 'intergenic'),
                         feature.start,
                         stop,
                         ".",
                         strand,
                         ".",
-                        f"ID={encode_attribute_val(parent_gene_id)}",
+                        f"ID={encode_attribute_val(parent_feat_id)}",
                     ]
                     line_str = "\t".join(map(str, gene_line))
                     outfile.write(line_str + "\n")
@@ -770,7 +811,7 @@ def write_flat_genome_files(
         "need_rgp": True if pangenome.status["predictedRGP"] != "No" else False,
         "need_spots": True if pangenome.status["spots"] != "No" else False,
         "need_modules": True if pangenome.status["modules"] != "No" else False,
-        "need_graph": True if table else False,
+        "need_graph": True if gff or table else False,
         "need_metadata": add_metadata,
         "sources": metadata_sources,
     }
