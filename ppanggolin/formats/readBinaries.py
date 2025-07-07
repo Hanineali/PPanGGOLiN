@@ -98,6 +98,8 @@ class Intergenicdata:
         start: int,
         stop: int,
         offset: int,
+        gene_type: str,
+        edge_name: str,
         coordinates: List[Tuple[int,int]] = None
     ):
         """Constructor method
@@ -111,6 +113,8 @@ class Intergenicdata:
         self.start = start
         self.stop = stop
         self.offset = offset
+        self.gene_type = gene_type
+        self.edge_name = edge_name
         self.coordinates = coordinates
 
     def __eq__(self, other):
@@ -120,6 +124,8 @@ class Intergenicdata:
             and self.start == other.start
             and self.stop == other.stop
             and self.offset == other.offset
+            and self.gene_type == other.gene_type
+            and self.edge_name == other.edge_name
             and self.coordinates == other.coordinates
         )
 
@@ -131,6 +137,8 @@ class Intergenicdata:
                 self.start,
                 self.stop,
                 self.offset,
+                self.gene_type,
+                self.edge_name,
                 tuple(self.coordinates)
             )
         )
@@ -316,14 +324,18 @@ def read_intergenicdata(h5f: tables.File) -> dict[Any, Intergenicdata]:
 
         raw_src = row["source_id"].decode()
         raw_tgt = row["target_id"].decode()
+        raw_edge_name = row["edge_name"].decode()
         source_id = None if raw_src == "" else raw_src
         target_id = None if raw_tgt == "" else raw_tgt
+        edge_name = None if raw_edge_name == "" else raw_edge_name
         intergenicdata = Intergenicdata(
             source_id = source_id,
             target_id = target_id,
             start = start,
             stop = stop,
             offset = row["offset"],
+            gene_type = row["gene_type"].decode(),
+            edge_name = edge_name,
             coordinates = coordinates,
             )
 
@@ -2186,6 +2198,7 @@ def read_intergenics(
             start=start,
             stop=stop,
             strand="+",
+            gene_type="IGR",
             coordinates=coords,
         )
 
@@ -2213,6 +2226,60 @@ def read_intergenics(
                 contig = pangenome.get_contig(int(row["contig"]))
                 intergenic.fill_parents(contig.organism, contig)
                 contig.add_intergenic(intergenic)
+
+def link_intergenic_edges(
+    pangenome: Pangenome,
+    h5f: tables.File,
+    disable_bar: bool = False,
+):
+    """
+    After the neighbor‐graph has been read, go back and attach
+    each Intergenic.edge by name.
+
+    Must be called after read_graph(...)
+    """
+
+    intergenicdata_dic = read_intergenicdata(h5f)
+
+    ig2dataid = {}
+    for row in h5f.root.annotations.intergenics:
+        ig_id = row["ID"].decode()
+        data_id = row["intergenicdata_id"]
+        ig2dataid[ig_id] = data_id
+
+    try:
+        pangenome._edge_name_getter
+    except AttributeError:
+        pangenome._mk_edge_name_getter()
+
+    for ig in tqdm(
+        pangenome.intergenics,
+        total=pangenome.number_of_intergenics,
+        disable=disable_bar,
+        unit="intergenic",
+    ):
+
+        data_id = ig2dataid.get(ig.ID)
+        if data_id is None:
+            logging.getLogger("PPanGGOLiN").warning(
+                f"No Intergenicdata row for intergenic {ig.ID!r}; skipping."
+            )
+            continue
+
+        igdata = intergenicdata_dic.get(data_id)
+        if igdata is None or not igdata.edge_name:
+            continue
+
+        try:
+            ig.edge = pangenome.get_edge_by_name(igdata.edge_name)
+        except KeyError:
+            logging.getLogger("PPanGGOLiN").warning(
+                f"Intergenic {ig.ID!r} refers to unknown edge {igdata.edge_name!r}; leaving edge=None"
+            )
+            ig.edge = None
+
+    logging.getLogger("PPanGGOLiN").info("Finished linking intergenics ↔ edges.")
+
 
 def read_annotation(
     pangenome: Pangenome,
@@ -2599,6 +2666,8 @@ def read_pangenome(
         if h5f.root.status._v_attrs.NeighborsGraph:
             logging.getLogger("PPanGGOLiN").info("Reading the neighbors graph edges...")
             read_graph(pangenome, h5f, disable_bar=disable_bar)
+            link_intergenic_edges(pangenome, h5f, disable_bar = disable_bar)
+
         else:
             raise Exception(
                 f"The pangenome in file '{filename}' does not have graph information, "
