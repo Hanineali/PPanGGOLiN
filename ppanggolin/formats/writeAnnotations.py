@@ -8,6 +8,7 @@ from typing import Dict, Tuple, Union
 from tqdm import tqdm
 import tables
 
+from ppanggolin.formats.writeFlatGenomes import feature_priority
 # local libraries
 from ppanggolin.pangenome import Pangenome
 from ppanggolin.genome import Gene, RNA, Intergenic
@@ -380,6 +381,8 @@ def intergenicdata_desc(
         "start": tables.UInt32Col(),
         "stop": tables.UInt32Col(),
         "offset": tables.UInt32Col(),
+        "gene_type": tables.StringCol(itemsize=id_len),
+        "edge_name": tables.StringCol(itemsize=2*id_len),
     }
 
 
@@ -490,12 +493,15 @@ def get_intergenicdata(feature: Intergenic) -> Intergenicdata:
         # Handle None source and target
     source_id = feature.source.ID if (feature.source is not None) else ""
     target_id = feature.target.ID if (feature.target is not None) else ""
+    edge_name = feature.edge.name if (feature.edge is not None) else ""
     return Intergenicdata(
         source_id=source_id,
         target_id=target_id,
         start=feature.start,
         stop=feature.stop,
         offset=feature.offset,
+        gene_type=feature.type,
+        edge_name = edge_name,
         coordinates=feature.coordinates
     )
 
@@ -587,6 +593,8 @@ def write_intergenicdata(
         intergenicdata_row["start"] = intergenicdata.start
         intergenicdata_row["stop"] = intergenicdata.stop
         intergenicdata_row["offset"] = intergenicdata.offset
+        intergenicdata_row["gene_type"] = intergenicdata.gene_type
+        intergenicdata_row["edge_name"] = intergenicdata.edge_name
 
         intergenicdata_row.append()
 
