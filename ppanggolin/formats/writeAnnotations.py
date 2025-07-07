@@ -366,7 +366,9 @@ def genedata_desc(
     }
 
 def intergenicdata_desc(
-    id_len: int
+    id_len: int,
+    source_id_len: int,
+    target_id_len: int,
 ) -> Dict[str, Union[tables.UIntCol, tables.StringCol]]:
     """
     Creates a table for gene-related data
@@ -376,8 +378,8 @@ def intergenicdata_desc(
     """
     return {
         "intergenicdata_id": tables.UInt32Col(),
-        "source_id": tables.StringCol(itemsize=id_len),
-        "target_id": tables.StringCol(itemsize=id_len),
+        "source_id": tables.StringCol(itemsize=source_id_len),
+        "target_id": tables.StringCol(itemsize=target_id_len),
         "start": tables.UInt32Col(),
         "stop": tables.UInt32Col(),
         "offset": tables.UInt32Col(),
@@ -434,7 +436,7 @@ def get_max_len_genedata(pangenome: Pangenome) -> Tuple[int, int, int]:
 
     return max_type_len, max_name_len, max_product_len
 
-def get_max_len_intergenicdata(pangenome: Pangenome) -> int:
+def get_max_len_intergenicdata(pangenome: Pangenome) -> Tuple[int,int,int]:
     """
     Get the maximum size of each gene data information to optimize disk space
 
@@ -442,16 +444,25 @@ def get_max_len_intergenicdata(pangenome: Pangenome) -> int:
     :return: maximum size of each annotation
     """
     max_id_len = 1
+    max_source_len = 1
+    max_target_len = 1
+    max_edge_len = 1
+
 
     for org in pangenome.organisms:
         for contig in org.contigs:
             for intergenic in contig.intergenics:
+                if len(intergenic.ID) > max_id_len:
+                    max_id_len = len(intergenic.ID)
+
                 source_id = intergenic.source.ID if intergenic.source else "None"
+                if len(source_id) > max_source_len:
+                    max_source_len = len(source_id)
                 target_id = intergenic.target.ID if intergenic.target else "None"
+                if len(target_id) > max_target_len:
+                    max_target_len = len(target_id)
 
-                max_id_len = max(max_id_len, len(source_id), len(target_id))
-
-    return max_id_len
+    return max_id_len, max_source_len, max_target_len
 
 
 def get_genedata(feature: Union[Gene, RNA]) -> Genedata:
@@ -571,7 +582,7 @@ def write_intergenicdata(
         intergenicdata_table = h5f.create_table(
             annotation,
             "intergenicdata",
-            intergenicdata_desc(get_max_len_intergenicdata(pangenome)),
+            intergenicdata_desc(*get_max_len_intergenicdata(pangenome)),
             expectedrows=len(intergenic_data_map),
         )
 

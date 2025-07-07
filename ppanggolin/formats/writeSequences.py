@@ -21,7 +21,6 @@ import subprocess
 import os
 
 from ppanggolin import pangenome, edge
-from ppanggolin.formats import read_pangenome
 # local libraries
 from ppanggolin.pangenome import Pangenome
 from ppanggolin.genome import Gene, Organism, RNA
