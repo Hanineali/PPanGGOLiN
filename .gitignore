@@ -10,4 +10,13 @@ build/
 dist/
 
 *.egg-info/
->>>>>>> read-h5file
+.gitignore
+
+miracle.txt
+nem_stats.cpython-310-x86_64-linux-gnu.so
+nem_stats.cpython-312-x86_64-linux-gnu.so
+ppanggolin/nem/NEM/nem_stats.c
+ppanggolin_output_DATE*/
+text.txt
+why.txt
+
