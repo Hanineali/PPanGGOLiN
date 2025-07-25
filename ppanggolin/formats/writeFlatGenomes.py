@@ -357,17 +357,15 @@ def write_gff_file(
 
                     source = annotation_sources.get(feat_type, "external")
 
-                    # before the CDS or RNA line a gene line is created. with the following id
-                    if isinstance(feature,(Gene,RNA)):
-                        parent_feat_id = f"gene-{feature.ID}"
+                    if isinstance(feature, (Gene, RNA)):
+                        parent_gene_id = f"gene-{feature.ID}"
                     else:
-                        parent_feat_id = f"intergenic-{feature.ID}"
-
+                        parent_gene_id = ""  # Intergenic or other types get an empty parent
 
                     attributes = [
                         ("ID", feature.ID),
                         ("Name", feature.name),
-                        ("Parent", parent_feat_id),
+                        ("Parent", parent_gene_id),
                         ("product", feature.product),
                     ]
 
@@ -441,24 +439,24 @@ def write_gff_file(
                             ("Edge", feature.edge.name),
                         ]
 
-                    # add an extra line of type gene
-                    stop = feature.stop
-                    if feature.overlaps_contig_edge:
-                        stop = contig.length + feature.stop
+                    if isinstance(feature, (Gene, RNA)):
+                        stop = feature.stop
+                        if feature.overlaps_contig_edge:
+                            stop = contig.length + feature.stop
 
-                    gene_line = [
-                        contig.name,
-                        source,
-                        ('gene' if isinstance(feature,(Gene,RNA)) else 'intergenic'),
-                        feature.start,
-                        stop,
-                        ".",
-                        strand,
-                        ".",
-                        f"ID={encode_attribute_val(parent_feat_id)}",
-                    ]
-                    line_str = "\t".join(map(str, gene_line))
-                    outfile.write(line_str + "\n")
+                        gene_line = [
+                            contig.name,
+                            source,
+                            "gene",
+                            feature.start,
+                            stop,
+                            ".",
+                            strand,
+                            ".",
+                            f"ID={encode_attribute_val(parent_gene_id)}",
+                        ]
+                        line_str = "\t".join(map(str, gene_line))
+                        outfile.write(line_str + "\n")
 
                 elif isinstance(feature, Region):
                     feat_type = "region"
