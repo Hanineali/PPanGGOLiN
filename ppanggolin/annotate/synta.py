@@ -864,7 +864,7 @@ def create_intergenic(org, contig, coordinates, intergenic_id, is_border, source
         stop= stop,  # Last stop position
         strand="+",  # Default strand
         coordinates=coordinates,
-        gene_type="IGR"
+        gene_type="intergenic"
 
     )
     intergenic.dna = intergenic_seq
