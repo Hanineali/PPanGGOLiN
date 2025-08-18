@@ -6,7 +6,7 @@ import logging
 from multiprocessing import get_context
 from collections import Counter, defaultdict
 import logging
-from typing import TextIO, List, Dict, Set, Any
+from typing import TextIO, List, Dict, Set, Any, Optional, Iterable
 from pathlib import Path
 from typing import TextIO
 from importlib.metadata import distribution
@@ -16,6 +16,7 @@ import csv
 
 # installed libraries
 import pandas as pd
+from tomlkit import value
 from tqdm import tqdm
 
 # local libraries
@@ -31,6 +32,7 @@ from ppanggolin.utils import (
     flatten_nested_dict,
 )
 from ppanggolin.formats.readBinaries import check_pangenome_info
+from ppanggolin.genome import Intergenic as _Intergenic
 
 # global variable to store the pangenome
 pan = Pangenome()  # TODO change to pangenome:Pangenome = Pangenome=() ?
@@ -547,7 +549,6 @@ def write_matrix(
         f"Done writing the matrix : '{outname.as_posix()}'"
     )
 
-
 def write_gene_presence_absence(output: Path, compress: bool = False):
     """
     Write the gene presence absence matrix
@@ -579,7 +580,103 @@ def write_gene_presence_absence(output: Path, compress: bool = False):
         f"Done writing the gene presence absence file : '{outname.as_posix()}'"
     )
 
+def write_edge_presence_absence(
+    output: Path,
+    compress: bool = False,
+    min_len: Optional[int] = None,
+    max_len: Optional[int] = None,
+) -> None:
+    """
+    Write a binary presence/absence matrix for edges (family–family) across genomes.
 
+
+    - Without any filtering min/max, an edge is "present" in a genome
+      if the edge exists for that genome
+    - With length filtering (min_len and/or max_len), an edge is "present" in a genome
+      if the genome has this edge AND at least one associated intergenic (IGR) whose length
+      satisfies the inclusive bounds:
+          min_len <= length <= max_len
+
+    :param output : Path Output directory; the file 'edge_presence_absence.Rtab' will be written there.
+    :param compress : bool compress the output using write_compressed_or_not's behavior.
+    :param min_len : Optional[int] Minimum IGR length (inclusive). Ignored if None.
+    :param max_len : Optional[int] Maximum IGR length (inclusive). Ignored if None.
+    :param require_igr : bool If True, require at least one IGR (after filtering if min/max are set) for an edge to be present.
+
+    Notes
+    - Uses the global `pan` (Pangenome) and the `Edge` structure with `get_organisms_dict()`,
+      where per-organism data may contain the key "intergenic" with a list of chains.
+    - An "intergenic chain" can be:
+        * a single Intergenic object, or
+        * a tuple like (Intergenic, Gene/RNA, Intergenic, ...)
+      This function extracts only the Intergenic elements from each chain.
+    """
+
+    log = logging.getLogger("PPanGGOLiN")
+    log.info("Writing the edge presence absence file ...")
+    outname = output / "edge_presence_absence.Rtab"
+
+    def igr_length(igr) -> int:
+        L = getattr(igr, "length", None)
+        return int(L if L is not None else abs(int(igr.stop) - int(igr.start)) + 1)
+
+    def iter_intergenics(chain) -> Iterable:
+        if isinstance(chain, tuple):
+            for feature in chain:
+                if isinstance(feature, _Intergenic):
+                    yield feature
+        else:
+            if isinstance(chain, _Intergenic):
+                yield chain
+
+    def passes_len(L: int) -> bool:
+        if min_len is not None and L < min_len: return False
+        if max_len is not None and L > max_len: return False
+        return True
+
+    use_len_filter = (min_len is not None) or (max_len is not None)
+
+    with write_compressed_or_not(outname, compress) as fh:
+        # header
+        fh.write("\t".join(["Edge"] + [str(org) for org in pan.organisms]) + "\n")
+
+        org_index = pan.get_org_index()
+        default_igr= ["0"] * pan.number_of_organisms
+        seen = set() # Added to just make sure there is no duplicates
+
+        for edge in pan.edges:
+            if edge.name in seen:
+                continue
+            seen.add(edge.name)
+
+            row = default_igr.copy()
+            org2data = edge.get_organisms_dict()
+
+            if not use_len_filter:
+                # unfiltered: presence == edge exists for the genome
+                for org in org2data.keys():
+                    row[org_index[org]] = "1"
+                fh.write("\t".join([edge.name] + row) + "\n")
+                continue
+
+            # filtered: require ≥1 qualifying IGR for presence
+            for org, data in org2data.items():
+                chains = (data.get("intergenic") or [])
+                present = any(
+                    passes_len(igr_length(igr))
+                    for chain in chains
+                    for igr in iter_intergenics(chain)
+                )
+                if present:
+                    row[org_index[org]] = "1"
+
+            # drop edges with no qualifying IGR anywhere
+            if all(v == "0" for v in row):
+                continue
+
+            fh.write("\t".join([edge.name] + row) + "\n")
+
+    log.info(f"Done writing the edge presence absence file : '{outname.as_posix()}'")
 def summarize_genome(
     organism: Organism,
     pangenome_persistent_count: int,
@@ -1335,6 +1432,7 @@ def write_pangenome_flat_files(
     dup_margin: float = 0.05,
     csv: bool = False,
     gene_pa: bool = False,
+    igr_pa: bool = False,
     gexf: bool = False,
     light_gexf: bool = False,
     stats: bool = False,
@@ -1348,6 +1446,8 @@ def write_pangenome_flat_files(
     spot_modules: bool = False,
     compress: bool = False,
     disable_bar: bool = False,
+    min_len:int | None = None,
+    max_len:int | None = None,
 ):
     """
     Main function to write flat files from pangenome
@@ -1359,6 +1459,7 @@ def write_pangenome_flat_files(
     :param dup_margin: minimum ratio of organisms in which family must have multiple genes to be considered duplicated
     :param csv: write csv file format as used by Roary
     :param gene_pa: write gene presence absence matrix
+    :param igr_pa: write igr presence absence matrix
     :param gexf: write pangenome graph in gexf format
     :param light_gexf: write pangenome graph with only gene families
     :param stats: write statistics about pangenome
@@ -1379,6 +1480,7 @@ def write_pangenome_flat_files(
         for x in [
             csv,
             gene_pa,
+            igr_pa,
             gexf,
             light_gexf,
             stats,
@@ -1413,6 +1515,7 @@ def write_pangenome_flat_files(
     if (
         csv
         or gene_pa
+        or igr_pa
         or gexf
         or light_gexf
         or stats
@@ -1430,7 +1533,7 @@ def write_pangenome_flat_files(
         needRNAFamilies = True
     if stats or partitions or spots or borders:
         needPartitions = True
-    if gexf or light_gexf or json or stats:
+    if gexf or light_gexf or json or stats or igr_pa:
         needGraph = True
         needRegions = True if pan.status["predictedRGP"] == "inFile" else False
         needSpots = True if pan.status["spots"] == "inFile" else False
@@ -1473,6 +1576,10 @@ def write_pangenome_flat_files(
         if gene_pa:
             processes.append(
                 p.apply_async(func=write_gene_presence_absence, args=(output, compress))
+            )
+        if igr_pa:
+            processes.append(
+                p.apply_async(func=write_edge_presence_absence, args=(output, compress,min_len,max_len))
             )
         if gexf:
             processes.append(
@@ -1545,6 +1652,7 @@ def launch(args: argparse.Namespace):
         dup_margin=args.dup_margin,
         csv=args.csv,
         gene_pa=args.Rtab,
+        igr_pa=args.IGR_Rtab,
         gexf=args.gexf,
         light_gexf=args.light_gexf,
         stats=args.stats,
@@ -1558,6 +1666,8 @@ def launch(args: argparse.Namespace):
         spot_modules=args.spot_modules,
         compress=args.compress,
         disable_bar=args.disable_prog_bar,
+        min_len=args.min_len,
+        max_len=args.max_len,
     )
 
 
@@ -1648,6 +1758,12 @@ def parser_flat(parser: argparse.ArgumentParser):
         action="store_true",
         help="tabular file for the gene binary presence absence matrix",
     )
+    optional.add_argument(
+        "--IGR_Rtab",
+        required=False,
+        action="store_true",
+        help="tabular file for the igr binary presence absence matrix",
+    )
 
     optional.add_argument(
         "--stats",
@@ -1716,6 +1832,16 @@ def parser_flat(parser: argparse.ArgumentParser):
         type=int,
         help="Number of available cpus",
     )
+    optional.add_argument(
+        "--min_len",
+        type=int,
+        default=None,
+        help="Minimal length of the intergenic sequence.")
+    optional.add_argument(
+        "--max_len",
+        type=int,
+        default=None,
+        help="Maximal length of the intergenic sequence.")
 
 
 if __name__ == "__main__":
