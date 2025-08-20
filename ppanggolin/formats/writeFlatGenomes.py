@@ -703,7 +703,7 @@ def mp_write_genomes_file(
     proksee: bool = False,
     gff: bool = False,
     table: bool = False,
-    init_fasta:bool = False,
+    export_origin_fasta:bool = False,
     igrPerOrg:bool = False,
     **kwargs,
 ) -> str:
@@ -715,7 +715,7 @@ def mp_write_genomes_file(
     :param proksee: Write a proksee file for the organism
     :param gff:  Write the gff file for the organism
     :param table: Write the organism file for the organism
-    :param init_fasta: Write the initial fasta file for the organism
+    :param export_origin_fasta: Write the initial fasta file for the organism
     :param kwargs: Pass any number of keyword arguments to the function
 
     :return: The organism name
@@ -778,7 +778,7 @@ def mp_write_genomes_file(
                 }
             }
         )
-    if init_fasta:
+    if export_origin_fasta:
         org_fast_outdir = output / "org_fastas"
         mk_outdir(org_fast_outdir, force=True, exist_ok=True)
         write_one_organism_fasta(
@@ -811,7 +811,7 @@ def write_flat_genome_files(
     add_metadata: bool = False,
     metadata_sep: str = "|",
     metadata_sources: List[str] = None,
-    init_fasta: bool = False,
+    export_origin_fasta: bool = False,
     igrPerOrg: bool=False,
     cpu: int = 1,
     disable_bar: bool = False,
@@ -835,7 +835,7 @@ def write_flat_genome_files(
     :param metadata_sources: Sources of the metadata to use and write in the outputs. None means all sources are used.
     """
 
-    if not any(x for x in [table, gff, proksee, init_fasta, igrPerOrg]):
+    if not any(x for x in [table, gff, proksee, export_origin_fasta, igrPerOrg]):
         raise argparse.ArgumentError(
             argument=None, message="You did not indicate what file you wanted to write."
         )
@@ -891,7 +891,7 @@ def write_flat_genome_files(
             "proksee": proksee,
             "compress": compress,
             "multigenics": multigenics,
-            "init_fasta": init_fasta,
+            "export_origin_fasta": export_origin_fasta,
             "igrPerOrg": igrPerOrg,
         }
     )
@@ -982,7 +982,7 @@ def launch(args: argparse.Namespace):
         add_metadata=args.add_metadata,
         metadata_sep=args.metadata_sep,
         metadata_sources=args.metadata_sources,
-        init_fasta=args.init_fasta,
+        export_origin_fasta=args.export_origin_fasta,
         igrPerOrg=args.igrPerOrg,
         cpu=args.cpu,
         disable_bar=args.disable_prog_bar,
@@ -1089,7 +1089,7 @@ def parser_flat(parser: argparse.ArgumentParser):
         " values from the same source. This character should not appear in metadata values.",
     )
     optional.add_argument(
-        "--init_fasta",
+        "--export_origin_fasta",
         required = False,
         action = "store_true",
         help = "Reconstruct the whole-genome FASTA per organism from the pangenome."
