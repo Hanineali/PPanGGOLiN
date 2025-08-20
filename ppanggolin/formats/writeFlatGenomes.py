@@ -663,6 +663,38 @@ def write_one_organism_fasta(
     logging.getLogger("PPanGGOLiN").info("DONE writing all organisms' fasta file\n")
 
 
+def write_one_org_igr_fasta(
+        organism: Organism,
+        outdir: Path,
+        compress: bool = False
+):
+    """
+    Write a single FASTA file containing intergenic regions
+    of `organism`. Each contig starts on a new line, with its own header.
+    """
+    out_file = outdir / f"{organism.name}.fasta{'.gz' if compress else ''}"
+
+    with write_compressed_or_not(out_file, compress=compress) as file_obj:
+        for idx, contig in enumerate(organism.contigs):
+            if idx > 0:
+                file_obj.write('\n')  # Add a newline between contigs
+
+            feats = sorted(
+                list(contig.intergenics),
+                key=lambda x: (x.start, feature_priority(x))
+            )
+
+            for i, feat in enumerate(feats):
+                print(i, feat.ID)
+                seq = feat.dna
+                if seq is not None:
+                    # Write the header for the intergenic region
+                    file_obj.write(f">{organism.name}|{feat.source}|{feat.target}|{feat.start}|{feat.stop}\n")
+                    # Write the sequence
+                    file_obj.write(f"{seq}\n")
+
+    logging.getLogger("PPanGGOLiN").info(f"DONE writing intergenics FASTA file for {organism.name} to {out_file}")
+
 
 def mp_write_genomes_file(
     organism: Organism,
@@ -672,6 +704,7 @@ def mp_write_genomes_file(
     gff: bool = False,
     table: bool = False,
     init_fasta:bool = False,
+    igrPerOrg:bool = False,
     **kwargs,
 ) -> str:
     """Wrapper for the write_genomes_file function that allows it to be used in multiprocessing.
@@ -753,6 +786,14 @@ def mp_write_genomes_file(
             outdir=org_fast_outdir,
             compress=kwargs.get("compress", False),
         )
+    if igrPerOrg:
+        org_igr = output/ "igr_fastas"
+        mk_outdir(org_igr,force =True, exist_ok=True),
+        write_one_org_igr_fasta(
+            organism=organism,
+            outdir= org_igr,
+            compress=kwargs.get("compress", False),
+        )
 
     return organism.name
 
@@ -771,6 +812,7 @@ def write_flat_genome_files(
     metadata_sep: str = "|",
     metadata_sources: List[str] = None,
     init_fasta: bool = False,
+    igrPerOrg: bool=False,
     cpu: int = 1,
     disable_bar: bool = False,
 ):
@@ -793,7 +835,7 @@ def write_flat_genome_files(
     :param metadata_sources: Sources of the metadata to use and write in the outputs. None means all sources are used.
     """
 
-    if not any(x for x in [table, gff, proksee, init_fasta]):
+    if not any(x for x in [table, gff, proksee, init_fasta, igrPerOrg]):
         raise argparse.ArgumentError(
             argument=None, message="You did not indicate what file you wanted to write."
         )
@@ -850,6 +892,7 @@ def write_flat_genome_files(
             "compress": compress,
             "multigenics": multigenics,
             "init_fasta": init_fasta,
+            "igrPerOrg": igrPerOrg,
         }
     )
     for organism in organisms_list:
@@ -940,6 +983,7 @@ def launch(args: argparse.Namespace):
         metadata_sep=args.metadata_sep,
         metadata_sources=args.metadata_sources,
         init_fasta=args.init_fasta,
+        igrPerOrg=args.igrPerOrg,
         cpu=args.cpu,
         disable_bar=args.disable_prog_bar,
     )
@@ -1049,6 +1093,12 @@ def parser_flat(parser: argparse.ArgumentParser):
         required = False,
         action = "store_true",
         help = "Reconstruct the whole-genome FASTA per organism from the pangenome."
+    )
+    optional.add_argument(
+        "--igrPerOrg",
+        required=False,
+        action="store_true",
+        help="Reconstruct the intergenic FASTA per organism from the pangenome."
     )
 
     optional.add_argument(
