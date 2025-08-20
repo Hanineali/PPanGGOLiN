@@ -2198,7 +2198,7 @@ def read_intergenics(
             start=start,
             stop=stop,
             strand="+",
-            gene_type="IGR",
+            gene_type="intergenic",
             coordinates=coords,
         )
 
