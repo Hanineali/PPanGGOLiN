@@ -12,7 +12,7 @@ import tables
 from ppanggolin.genome import Organism, Contig, Gene, Intergenic, RNA
 from ppanggolin.region import Region, Spot, Module
 from ppanggolin.geneFamily import GeneFamily
-from ppanggolin.rnaFamily import rnaFamily
+from ppanggolin.rnaFamily import RNAFamily
 from ppanggolin.edge import Edge
 from ppanggolin.metadata import Metadata
 
@@ -395,7 +395,7 @@ class Pangenome:
     """RNA families methods"""
 
     @property
-    def rna_families(self) -> Generator[rnaFamily, None, None]:
+    def rna_families(self) -> Generator[RNAFamily, None, None]:
         """
         Returns all the RNA families in the pangenome.
         """
@@ -422,7 +422,7 @@ class Pangenome:
         """
         self._max_rnaFam_id = value
 
-    def get_rna_family(self, family_name: str) -> rnaFamily:
+    def get_rna_family(self, family_name: str) -> RNAFamily:
         """
         Return the RNA family that has the given `family_name`.
         Raises KeyError if not found.
@@ -436,11 +436,11 @@ class Pangenome:
         else:
             return fam
 
-    def add_rna_family(self, rna_fam: rnaFamily):
+    def add_rna_family(self, rna_fam: RNAFamily):
         """
         Adds the given RNA family to the pangenome. If a family with the same name already exists, raises KeyError.
         """
-        if not isinstance(rna_fam, rnaFamily):
+        if not isinstance(rna_fam, RNAFamily):
             raise AssertionError("Expected an RNAFamily object.")
         try:
             self.get_rna_family(rna_fam.name)
@@ -1143,7 +1143,7 @@ class Pangenome:
                 yield elem
 
     @property
-    def rna_families(self) -> Generator[rnaFamily, None, None]:
+    def rna_families(self) -> Generator[RNAFamily, None, None]:
         """
         Returns all the RNA families in the pangenome.
         """
@@ -1170,7 +1170,7 @@ class Pangenome:
         """
         self._max_rnaFam_id = value
 
-    def get_rna_family(self, family_name: str) -> rnaFamily:
+    def get_rna_family(self, family_name: str) -> RNAFamily:
         """
         Return the RNA family that has the given `family_name`.
         Raises KeyError if not found.
@@ -1184,11 +1184,11 @@ class Pangenome:
         else:
             return fam
 
-    def add_rna_family(self, rna_fam: rnaFamily):
+    def add_rna_family(self, rna_fam: RNAFamily):
         """
         Adds the given RNA family to the pangenome. If a family with the same name already exists, raises KeyError.
         """
-        if not isinstance(rna_fam, rnaFamily):
+        if not isinstance(rna_fam, RNAFamily):
             raise AssertionError("Expected an RNAFamily object.")
         try:
             self.get_rna_family(rna_fam.name)

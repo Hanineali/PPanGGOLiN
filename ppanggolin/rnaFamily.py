@@ -15,7 +15,7 @@ from ppanggolin.genome import Gene, Organism, RNA
 from ppanggolin.metadata import MetaFeatures
 
 
-class rnaFamily(MetaFeatures):
+class RNAFamily(MetaFeatures):
     """
     Represents a single RNA family in the pangenome.
 
@@ -45,9 +45,9 @@ class rnaFamily(MetaFeatures):
         :param name: The name of the gene family (to be printed in output files)
         :type name: str
         """
-        assert isinstance(family_id, int), "rnaFamily object id should be an integer"
-        assert isinstance(name, str), "rnaFamily object name should be a string"
-        assert name != "", "rnaFamily object cannot be created with an empty name"
+        assert isinstance(family_id, int), "RNAFamily object id should be an integer"
+        assert isinstance(name, str), "RNAFamily object name should be a string"
+        assert name != "", "RNAFamily object cannot be created with an empty name"
 
         super().__init__()
         self.name = str(name)
@@ -196,7 +196,7 @@ class rnaFamily(MetaFeatures):
             _ = self.get_org_dict()
         yield from self._rnaPerOrg.keys()
 
-    def set_edge(self, target: rnaFamily, edge):
+    def set_edge(self, target: RNAFamily, edge):
         """Set an edge between RNA families
 
         :param target: Neighbor RNA family
@@ -204,7 +204,7 @@ class rnaFamily(MetaFeatures):
         """
         self._edges_getter[target] = edge
 
-    def get_edge(self, target: rnaFamily):
+    def get_edge(self, target: RNAFamily):
         """Get the edge linking this RNA family to another"""
         return self._edges_getter[target]
 

@@ -314,9 +314,9 @@ class RNA(Feature):
 
         :param family: RNA family linked to the RNA
         """
-        from ppanggolin.rnaFamily import rnaFamily  # Import the correct class
+        from ppanggolin.rnaFamily import RNAFamily  # Import the correct class
 
-        if not isinstance(family, rnaFamily):
+        if not isinstance(family, RNAFamily):
             raise TypeError(f"Expected type RNAFamily, got {type(family)}")
         self._family = family
 

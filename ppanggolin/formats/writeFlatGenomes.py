@@ -22,7 +22,7 @@ from ppanggolin.geneFamily import GeneFamily
 from ppanggolin.genome import Organism, Gene, RNA, Intergenic
 from ppanggolin.region import Region, Module
 from ppanggolin.pangenome import Pangenome
-from ppanggolin.rnaFamily import rnaFamily
+from ppanggolin.rnaFamily import RNAFamily
 from ppanggolin.utils import (
     write_compressed_or_not,
     mk_outdir,
@@ -46,7 +46,7 @@ def count_neighbors_partitions(gene_family: GeneFamily):
     nb_cloud = 0
 
     for neighbor in gene_family.neighbors:
-        if isinstance(neighbor, rnaFamily):
+        if isinstance(neighbor, RNAFamily):
             continue
         if neighbor.named_partition == "persistent":
             nb_pers += 1

@@ -16,7 +16,7 @@ import tables
 from ppanggolin.genome import Organism, Gene, RNA, Contig, Intergenic
 from ppanggolin.pangenome import Pangenome
 from ppanggolin.geneFamily import GeneFamily
-from ppanggolin.rnaFamily import rnaFamily
+from ppanggolin.rnaFamily import RNAFamily
 from ppanggolin.region import Region, Spot, Module
 from ppanggolin.metadata import Metadata
 from ppanggolin.utils import write_compressed_or_not
@@ -1762,7 +1762,7 @@ def read_rna_families(
         try:
             fam = pangenome.get_rna_family(row["rnaFam"].decode())
         except KeyError:
-            fam = rnaFamily(
+            fam = RNAFamily(
                 family_id=pangenome.max_rnaFam_id, name=row["rnaFam"].decode()
             )
             pangenome.add_rna_family(fam)
