@@ -275,7 +275,7 @@ def select_representative(seq_ids, dist_matrix) -> str:
 
 def process_rna_clustering_from_file(pan: Pangenome, tmpdir: Path, output_fasta: str):
     """
-    Branch for when pan.status["geneSequences"] == "inFile".
+    Branch for when pan.status["rnaSequences"] == "inFile".
     We don't have RNA objects in memory, only IDs in the HDF5 file.
     """
     # Create dictionary: family_name -> list of RNA IDs
@@ -324,7 +324,7 @@ def process_rna_clustering_from_file(pan: Pangenome, tmpdir: Path, output_fasta:
 
 def process_rna_clustering_from_annotation(pan: Pangenome, tmpdir: Path, output_fasta: str):
     """
-    Branch for when pan.status["geneSequences"] is in ["Computed", "Loaded"].
+    Branch for when pan.status["rnaSequences"] is in ["Computed", "Loaded"].
     We already have RNA objects in memory.
     """
     # create the path to write the rna -> family
@@ -383,19 +383,36 @@ def rna_fam_clustering(pan: Pangenome, tmpdir: Path) -> tuple[str, str]:
     :param tmpdir: Temporary directory path
     :return: Path to the TSV file containing the family representatives
     """
-    logging.info(f"RNA family clustering - geneSequences status: {pan.status['geneSequences']}")
+    logging.info(f"RNA family clustering - rnaSequences status: {pan.status['rnaSequences']}")
 
     fna_output = os.path.join(tmpdir, "rna_family_representatives.fna")
 
-    # geneSequences in ["Computed", "Loaded"]
-    if pan.status["geneSequences"] in ["Computed", "Loaded"]:
-        rna2fam_tsv = process_rna_clustering_from_annotation(pan, tmpdir, fna_output)
+    try:
+        if pan.status["rnaSequences"] in ("Computed", "Loaded"):
+            rna2fam_tsv = process_rna_clustering_from_annotation(pan, tmpdir, fna_output)
+            return fna_output, rna2fam_tsv
 
-    # geneSequences == "inFile"
-    elif pan.status["geneSequences"] == "inFile":
-        rna2fam_tsv = process_rna_clustering_from_file(pan, tmpdir, fna_output)
+        if pan.status["rnaSequences"] == "inFile":
+            rna2fam_tsv = process_rna_clustering_from_file(pan, tmpdir, fna_output)
+            return fna_output, rna2fam_tsv
 
-    return fna_output, rna2fam_tsv
+        # No RNA sequences available
+        logging.warning(
+            "Skipping RNA clustering: RNA sequences are not available (status=%s). "
+            "Proceeding with gene-only clustering. "
+            "To cluster RNAs, include RNAs during annotation or omit --norna.",
+            pan.status["rnaSequences"],
+        )
+        return None, None
+
+    except Exception as e:
+        # Typical case: missing /annotations/rnaSequences in file or other non-critical RNA issue
+        logging.warning(
+            "Skipping RNA clustering due to missing/unavailable RNA data or runtime error. "
+            "Proceeding with gene-only clustering. Details: %r",
+            e,
+        )
+        return None, None
 
 def create_mmseqs_db(
     sequences: Iterable[Path],

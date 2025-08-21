@@ -670,6 +670,7 @@ def write_annotations(
     rec_genes: bool = True,
     rec_rnas: bool = True,
     rec_intergenics: bool = True, # add the intergenic region
+    write_rna:bool = True,
     disable_bar: bool = False,
 ):
     """Function writing all the pangenome annotations
@@ -706,11 +707,12 @@ def write_annotations(
         desc = gene_desc(gene_id_len, gene_local_id)
         genedata2gene = write_genes(pangenome, h5f, annotation, desc, writer, disable_bar)
         write_genedata(pangenome, h5f, annotation, genedata2gene, disable_bar)
-
-    if rec_rnas:
-        desc = rna_desc(rna_id_len)
-        genedata2rna = write_rnas(pangenome, h5f, annotation, desc, writer, disable_bar)
-        write_genedata(pangenome, h5f, annotation, genedata2rna, disable_bar)
+    if write_rna:
+        if rec_rnas:
+            desc = rna_desc(rna_id_len)
+            genedata2rna = write_rnas(pangenome, h5f, annotation, desc, writer, disable_bar)
+            write_genedata(pangenome, h5f, annotation, genedata2rna, disable_bar)
+            pangenome.status["rnasAnnotated"] = "Loaded"
 
     if rec_intergenics:
         desc = intergenic_desc(intergenic_id_len)
@@ -722,13 +724,6 @@ def write_annotations(
         for gene, gene_id in genedata2gene.items()
         if gene.has_joined_coordinates
     }
-    genes_with_joined_coordinates_2_id.update(
-        {
-            gene: gene_id
-            for gene, gene_id in genedata2rna.items()
-            if gene.has_joined_coordinates
-        }
-    )
 
     write_gene_joined_coordinates(
         h5f, annotation, genes_with_joined_coordinates_2_id, disable_bar
@@ -979,27 +974,28 @@ def process_writing_sequences(
             logging.getLogger("PPanGGOLiN").warning(f"Gene {gene.ID} has no DNA sequence.")
     gene_seq_table.flush()
 
-    rna_row = rna_seq_table.row
-    for rna in tqdm(
-            sorted(pangenome.RNAs, key=lambda x: x.ID),
-            total=pangenome.number_of_rnas,
-            unit="rna",
-            disable=disable_bar,
-    ):
-        if rna.dna:
-            curr_seq_id = seq2seqid.get(rna.dna)
-            if curr_seq_id is None:
-                curr_seq_id = id_counter
-                seq2seqid[rna.dna] = id_counter
-                id_counter += 1
-            rna_row["rna"] = rna.ID
-            rna_row["seqid"] = curr_seq_id
-            rna_row["type"] = rna.type
-            rna_row["product"] = rna.product
-            rna_row.append()
-        else:
-            logging.getLogger("PPanGGOLiN").warning(f"RNA {rna.ID} has no DNA sequence.")
-    rna_seq_table.flush()
+    if rna_seq_table is not None:
+        rna_row = rna_seq_table.row
+        for rna in tqdm(
+                sorted(pangenome.RNAs, key=lambda x: x.ID),
+                total=pangenome.number_of_rnas,
+                unit="rna",
+                disable=disable_bar,
+        ):
+            if rna.dna:
+                curr_seq_id = seq2seqid.get(rna.dna)
+                if curr_seq_id is None:
+                    curr_seq_id = id_counter
+                    seq2seqid[rna.dna] = id_counter
+                    id_counter += 1
+                rna_row["rna"] = rna.ID
+                rna_row["seqid"] = curr_seq_id
+                rna_row["type"] = rna.type
+                rna_row["product"] = rna.product
+                rna_row.append()
+            else:
+                logging.getLogger("PPanGGOLiN").warning(f"RNA {rna.ID} has no DNA sequence.")
+        rna_seq_table.flush()
 
     intergenic_row = intergenic_seq_table.row
 
@@ -1026,14 +1022,17 @@ def process_writing_sequences(
     return seq2seqid
 
 def write_gene_intergenic_sequences(
-        pangenome: Pangenome, h5f: tables.File, disable_bar: bool = False
+        pangenome: Pangenome, h5f: tables.File,
+        write_rna_seq = True,
+        disable_bar: bool = False
 ):
     gene_seq = create_gene_seq_table(pangenome, h5f)
-    rna_seq = create_rna_seq_table(pangenome, h5f)
+    rna_seq = create_rna_seq_table(pangenome, h5f) if write_rna_seq else None
     intergenic_seq = create_intergenic_seq_table(pangenome, h5f)
 
     seq2seqid = process_writing_sequences(gene_seq, rna_seq, intergenic_seq, pangenome, disable_bar)
 
     # get/create sequence to seqID table
     write_seq_2_seq_id_table(pangenome, h5f, seq2seqid)
+    pangenome.status["rnaSequences"] = "Loaded" if rna_seq else "No"
 

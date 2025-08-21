@@ -722,6 +722,26 @@ def write_status(pangenome: Pangenome, h5f: tables.File):
         if pangenome.status["geneFamilySequences"] in ["Computed", "Loaded", "inFile"]
         else False
     )
+    status_group._v_attrs.rnasAnnotated = (
+        True
+        if pangenome.status["rnasAnnotated"] in ["Computed", "Loaded", "inFile"]
+        else False
+    )
+    status_group._v_attrs.rnaSequences = (
+        True
+        if pangenome.status["rnaSequences"] in ["Computed", "Loaded", "inFile"]
+        else False
+    )
+    status_group._v_attrs.rnasClustered = (
+        True
+        if pangenome.status["rnasClustered"] in ["Computed", "Loaded", "inFile"]
+        else False
+    )
+    status_group._v_attrs.rnaFamilySequences = (
+        True
+        if pangenome.status["rnaFamilySequences"] in ["Computed", "Loaded", "inFile"]
+        else False
+    )
     status_group._v_attrs.NeighborsGraph = (
         True
         if pangenome.status["neighborsGraph"] in ["Computed", "Loaded", "inFile"]
@@ -1166,10 +1186,11 @@ def write_pangenome(
 
             h5f = tables.open_file(filename, "w", filters=compression_filter)
             logging.getLogger("PPanGGOLiN").info("Writing genome annotations...")
-
-            write_annotations(pangenome, h5f, disable_bar=disable_bar)
+            write_rna = True if pangenome.status["rnasAnnotated"] == "Computed" else False
+            write_annotations(pangenome, h5f, write_rna=write_rna, disable_bar=disable_bar)
 
             pangenome.status["genomesAnnotated"] = "Loaded"
+
             h5f.close()
 
     # from there, appending to existing file
@@ -1179,17 +1200,13 @@ def write_pangenome(
         logging.getLogger("PPanGGOLiN").info(
             "writing the protein coding gene dna sequences in pangenome..."
         )
-        write_gene_intergenic_sequences(pangenome, h5f, disable_bar=disable_bar)
+        write_rna_seq = True if pangenome.status["rnaSequences"] == "Computed" else False
+        write_gene_intergenic_sequences(pangenome, h5f, write_rna_seq= write_rna_seq, disable_bar=disable_bar)
         pangenome.status["geneSequences"] = "Loaded"
 
     if pangenome.status["genesClustered"] == "Computed":
         logging.getLogger("PPanGGOLiN").info(
             "Writing gene families and gene associations in pangenome..."
-        )
-        write_rna_families(pangenome, h5f, force, disable_bar=disable_bar)
-        write_rna_fam_info(pangenome, h5f, force, disable_bar=disable_bar)
-        logging.getLogger("PPanGGOLiN").info(
-            "Writing rna families information in pangenome..."
         )
         write_gene_families(pangenome, h5f, force, disable_bar=disable_bar)
         logging.getLogger("PPanGGOLiN").info(
@@ -1204,6 +1221,16 @@ def write_pangenome(
             # and there has been a clustering with defragmentation, then the annotations can be updated
             update_gene_fragments(pangenome, h5f, disable_bar=disable_bar)
         pangenome.status["genesClustered"] = "Loaded"
+    if pangenome.status["rnasClustered"] == "Computed":
+        logging.getLogger("PPanGGOLiN").info(
+            "Writing rna families and rna associations in pangenome..."
+        )
+        write_rna_families(pangenome, h5f, force, disable_bar=disable_bar)
+        write_rna_fam_info(pangenome, h5f, force, disable_bar=disable_bar)
+        logging.getLogger("PPanGGOLiN").info(
+            "Writing rna families information in pangenome..."
+        )
+        pangenome.status["rnasClustered"] = "Loaded"
     if pangenome.status["neighborsGraph"] == "Computed":
         logging.getLogger("PPanGGOLiN").info(
             "Writing the edges of neighbors graph in pangenome..."

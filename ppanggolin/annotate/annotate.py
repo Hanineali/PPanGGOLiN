@@ -1595,6 +1595,7 @@ def read_annotations(
     )
 
     pangenome.status["geneSequences"] = "Computed"
+    pangenome.status["rnaSequences"] = "Computed"
     # we assume there are gene sequences in the annotation files,
     # unless a gff file without fasta is met (which is the only case where sequences can be absent)
     args = []
@@ -1632,6 +1633,7 @@ def read_annotations(
 
                 if not has_dna_sequence:
                     pangenome.status["geneSequences"] = "No"
+                    pangenome.status["rnaSequences"] = "No"
 
     # decide whether we use local ids or ppanggolin ids.
     used_local_identifiers = chose_gene_identifiers(pangenome)
@@ -1647,6 +1649,7 @@ def read_annotations(
         )
 
     pangenome.status["genomesAnnotated"] = "Computed"
+    pangenome.status["rnasAnnotated"] = "Computed"
     pangenome.parameters["annotate"] = {}
     pangenome.parameters["annotate"][
         "# used_local_identifiers"
@@ -1744,6 +1747,7 @@ def get_gene_sequences_from_fastas(
                     )
                     raise KeyError(msg)
     pangenome.status["geneSequences"] = "Computed"
+    pangenome.status["rnaSequences"] = "Computed"
 
 """ Functions used for debugging """
 
@@ -1879,7 +1883,17 @@ def annotate_pangenome(
     )
     pangenome.parameters["annotate"]["allow_overlap"] = allow_overlap
     pangenome.parameters["annotate"]["# read_annotations_from_file"] = False
-
+    # set RNA statuses according to `norna` and actual content
+    if norna:
+        # User explicitly disabled RNA annotation; nothing RNA-related exists
+        pangenome.status["rnasAnnotated"] = "No"
+        pangenome.status["rnaSequences"] = "No"
+    else:
+        # Check if any RNAs were annotated across all contigs
+        has_rna = any(len(list(ctg.RNAs)) > 0 for org in pangenome.organisms for ctg in org.contigs)
+        # If we found RNAs, mark annotation + sequences; clustering is another step
+        pangenome.status["rnasAnnotated"] = "Computed" if has_rna else "No"
+        pangenome.status["rnaSequences"] = "Computed" if has_rna else "No"
 
 def launch(args: argparse.Namespace):
     """

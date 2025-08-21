@@ -206,6 +206,14 @@ def get_status(pangenome: Pangenome, pangenome_file: Path):
         pangenome.status["geneSequences"] = "inFile"
     if status_group._v_attrs.geneFamilySequences:
         pangenome.status["geneFamilySequences"] = "inFile"
+    if status_group._v_attrs.rnasAnnotated:
+        pangenome.status["rnasAnnotated"] = "inFile"
+    if status_group._v_attrs.rnasClustered:
+        pangenome.status["rnasClustered"] = "inFile"
+    if status_group._v_attrs.rnaSequences:
+        pangenome.status["rnaSequences"] = "inFile"
+    if status_group._v_attrs.rnaFamilySequences:
+        pangenome.status["rnaFamilySequences"] = "inFile"
     if status_group._v_attrs.NeighborsGraph:
         pangenome.status["neighborsGraph"] = "inFile"
 
@@ -1749,7 +1757,7 @@ def read_rna_families(
 
     link = (
         True
-        if pangenome.status["genomesAnnotated"] in ["Computed", "Loaded"]
+        if pangenome.status["rnasAnnotated"] in ["Computed", "Loaded"]
         else False
     )
 
@@ -1772,6 +1780,7 @@ def read_rna_families(
             rna_obj = RNA(row["rna"].decode())
         fam.add(rna_obj)
     logging.getLogger("PPanGGOLiN").info("RNA families info loaded")
+    pangenome.status["rnasClustered"] = "Loaded"
 
 
 def read_rna_families_info(
@@ -1794,6 +1803,7 @@ def read_rna_families_info(
     ):
         fam = pangenome.get_rna_family(row["name"].decode())
         fam.add_sequence(row["sequence"].decode(errors="ignore"))
+        pangenome.status["rnaFamilySequences"] = "Loaded"
 
 
 def read_gene_sequences(
@@ -1834,9 +1844,9 @@ def read_rna_sequences(
     :param h5f: Pangenome HDF5 file with rna sequence associate to rna
     :param disable_bar: Disable the progress bar
     """
-    if pangenome.status["genomesAnnotated"] not in ["Computed", "Loaded"]:
+    if pangenome.status["rnasAnnotated"] not in ["Computed", "Loaded"]:
         raise Exception(
-            "It's not possible to read the pangenome  dna sequences "
+            "It's not possible to read the pangenome dna sequences "
             "if the annotations have not been loaded."
         )
     table = h5f.root.annotations.rnaSequences
@@ -1851,6 +1861,7 @@ def read_rna_sequences(
         rna = pangenome.get_rna(row["rna"].decode())
         rna.add_sequence(seqid2seq[row["seqid"]])
     logging.getLogger("PPanGGOLiN").info("RNA sequences are loaded.")
+    pangenome.status["rnaSequences"] = "Loaded"
 
 
 def read_intergenic_sequences(
@@ -2136,6 +2147,7 @@ def read_rnas(
             contig = pangenome.get_contig(int(row["contig"]))
             rna.fill_parents(contig.organism, contig)
             contig.add_rna(rna)
+    pangenome.status["rnasAnnotated"] = "Loaded"
 
 def read_intergenics(
     pangenome: Pangenome,
@@ -2565,6 +2577,7 @@ def read_pangenome(
     metadata: bool = False,
     metatypes: Set[str] = None,
     sources: Set[str] = None,
+    load_rnas_annot: bool = True,
     disable_bar: bool = False,
 ):
     """
@@ -2600,7 +2613,7 @@ def read_pangenome(
     ):  # I place annotation here, to link gene to gene families if organism are not loaded
         if h5f.root.status._v_attrs.genomesAnnotated:
             logging.getLogger("PPanGGOLiN").info("Reading pangenome annotations...")
-            read_annotation(pangenome, h5f, disable_bar=disable_bar)
+            read_annotation(pangenome, h5f, load_rnas=load_rnas_annot, disable_bar=disable_bar)
         else:
             raise Exception(
                 f"The pangenome in file '{filename}' has not been annotated, or has been improperly filled"
@@ -2618,7 +2631,7 @@ def read_pangenome(
                 f"or has been improperly filled"
             )
     if rna_sequences:
-        if h5f.root.status._v_attrs.geneSequences:
+        if h5f.root.status._v_attrs.rnaSequences:
 
             logging.getLogger("PPanGGOLiN").info(
                 "Reading pangenome rna dna sequences..."
@@ -2652,7 +2665,7 @@ def read_pangenome(
             )
 
     if rna_families:
-        if h5f.root.status._v_attrs.genesClustered:
+        if h5f.root.status._v_attrs.rnasClustered:
             logging.getLogger("PPanGGOLiN").info("Reading pangenome rna families...")
             read_rna_families(pangenome, h5f, disable_bar=disable_bar)
             read_rna_families_info(pangenome, h5f, disable_bar=disable_bar)
@@ -2779,9 +2792,9 @@ def get_need_info(
                 "Your pangenome has no gene families. See the 'cluster' subcommand."
             )
     if need_rna_families:
-        if pangenome.status["genesClustered"] == "inFile":
+        if pangenome.status["rnasClustered"] == "inFile":
             need_info["rna_families"] = True
-        elif pangenome.status["genesClustered"] not in ["Computed", "Loaded"]:
+        elif pangenome.status["rnasClustered"] not in ["Computed", "Loaded"]:
             raise Exception(
                 "Your pangenome has no rna families. See the 'cluster' subcommand."
             )
@@ -2823,9 +2836,9 @@ def get_need_info(
                 "This is possible only if you provided your own cluster file with the 'cluster' subcommand"
             )
     if need_rna_sequences:
-        if pangenome.status["geneSequences"] == "inFile":
+        if pangenome.status["rnaSequences"] == "inFile":
             need_info["rna_sequences"] = True
-        elif pangenome.status["geneSequences"] not in ["Computed", "Loaded"]:
+        elif pangenome.status["rnaSequences"] not in ["Computed", "Loaded"]:
             raise Exception(
                 "Your pangenome does not include rna sequences. "
                 "This is possible only if you provided your own cluster file with the 'cluster' subcommand"

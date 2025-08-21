@@ -32,7 +32,7 @@ def check_pangenome_former_graph(pangenome: Pangenome, force: bool = False):
         erase_pangenome(pangenome, graph=True)
 
 
-def check_pangenome_for_neighbors_graph(pangenome, force, disable_bar=False):
+def check_pangenome_for_neighbors_graph(pangenome, force, disable_bar=False,norna=False):
     """
     Checks and read the pangenome for neighbors graph computing.
 
@@ -42,18 +42,30 @@ def check_pangenome_for_neighbors_graph(pangenome, force, disable_bar=False):
     """
     check_pangenome_former_graph(pangenome, force)
     # TODO Check if possible to change for check_pangenome_info
-    if pangenome.status["genomesAnnotated"] in [
-        "Computed",
-        "Loaded",
-    ] and pangenome.status["genesClustered"] in ["Computed", "Loaded"]:
-        pass  # nothing to do, can just continue.
+    if pangenome.status["genomesAnnotated"] in ["Computed","Loaded"] and pangenome.status["genesClustered"] in ["Computed", "Loaded"]:
+        #pass  # nothing to do, can just continue.
+        if not norna and (pangenome.status["rnasAnnotated"]=="No" and pangenome.status["rnasClustered"]=="No"):
+            raise Exception(
+                "Dev : You requested to include RNAs in the graph, but RNAs are not annotated nor clustered."
+                "Run 'ppanggolin annotate and cluster' with RNA clustering enabled or use '--norna' to skip RNAs. \n"
+            )
+        else:
+            pass
     elif (
-        pangenome.status["genomesAnnotated"] == "inFile"
-        and pangenome.status["genesClustered"] == "inFile"
-    ):
-        read_pangenome(
-            pangenome, annotation=True, gene_families=True, rna_families=True, intergenic_sequences=True,disable_bar=disable_bar
-        )
+        pangenome.status["genomesAnnotated"] == "inFile" and pangenome.status["genesClustered"] == "inFile"):
+        if not norna and pangenome.status["rnasAnnotated"] == "No" and pangenome.status["rnasClustered"] == "No":
+            raise Exception(
+                "Dev : You requested to include RNAs in the graph, but RNAs are not annotated nor clustered."
+                "Run 'ppanggolin annotate and cluster' with RNA clustering enabled or use '--norna' to skip RNAs. \n"
+            )
+        elif norna:
+            read_pangenome(
+                pangenome, annotation=True, gene_families=True, intergenic_sequences=True, load_rnas_annot=not norna, disable_bar=disable_bar
+            )
+        else:
+            read_pangenome(
+                pangenome, annotation=True, gene_families=True, rna_families=True, intergenic_sequences=True, disable_bar=disable_bar
+            )
     elif pangenome.status["genesClustered"] == "No" and pangenome.status[
         "genomesAnnotated"
     ] in ["inFile", "Computed", "Loaded"]:
@@ -74,12 +86,12 @@ def check_pangenome_for_neighbors_graph(pangenome, force, disable_bar=False):
         raise NotImplementedError(msg)
 
 
-def remove_high_copy_number(pangenome, number, rnas = False):
+def remove_high_copy_number(pangenome, number, rna=True):
     """Removes families present more than 'number' times from the pangenome graph
 
     :param pangenome: Pangenome object
     :param number: Maximum authorized repeat presence
-    :param rnas: If True, also applies to RNA families
+    :param norna: If True, also applies to RNA families
     """
     for fam in pangenome.gene_families:
         for gene_list in fam.get_org_dict().values():
@@ -87,7 +99,7 @@ def remove_high_copy_number(pangenome, number, rnas = False):
                 fam.removed = True
 
         # RNA families
-    if rnas:
+    if rna:
         for fam in pangenome.rna_families:
             for rna_list in fam.get_org_dict().values():
                 if len(rna_list) >= number:
@@ -129,6 +141,7 @@ def compute_neighbors_graph(
     remove_copy_number: int = 0,
     force: bool = False,
     disable_bar: bool = False,
+    norna: bool = False,
 ):
     """
         Creates the Pangenome Graph. Will either load the information from the pangenome file if they are not loaded,
@@ -138,11 +151,12 @@ def compute_neighbors_graph(
         :param remove_copy_number: Maximum authorized repeat presence of gene families. if zero no remove
         :param force: Allow to force write on Pangenome file
         :param disable_bar: Disable progress bar
+        :param norna: Do not include RNAs in graph
         """
-    check_pangenome_for_neighbors_graph(pangenome, force, disable_bar=disable_bar)
+    check_pangenome_for_neighbors_graph(pangenome, force, disable_bar=disable_bar, norna=norna)
 
     if remove_copy_number > 0:
-        remove_high_copy_number(pangenome, remove_copy_number)
+        remove_high_copy_number(pangenome, remove_copy_number, rna= not norna)
 
     logging.getLogger("PPanGGOLiN").info("Computing the neighbors graph...")
     bar = tqdm(
@@ -155,7 +169,8 @@ def compute_neighbors_graph(
         bar.set_description(f"Processing {org.name}")
 
         for contig in org.contigs:
-            all_features = sorted(list(contig.genes) + list(contig.RNAs), key=lambda x: x.start)
+            features = list(contig.genes) if norna else (list(contig.genes) + list(contig.RNAs))
+            all_features = sorted(features, key=lambda x: x.start)
 
             prev_conserved_feat = None
             temp_list = []
@@ -261,9 +276,11 @@ def compute_neighbors_graph(
                         raise Exception(
                             "Unexpected error while creating circular edges."
                         )
+    if norna:
+        logging.getLogger("PPanGGOLiN").info("Done making the neighbors graph with genes and intergenics; RNAs are skipped).")
+    else:
+        logging.getLogger("PPanGGOLiN").info("Done making the neighbors graph with all features genes,rnas and intergenics.")
 
-    logging.getLogger("PPanGGOLiN").info(
-        "Done making the neighbors graph with all features genes,rnas and intergenics.")
     pangenome.status["neighborsGraph"] = "Computed"
     pangenome.parameters["graph"] = {}
     if remove_copy_number > 0:
@@ -277,11 +294,13 @@ def launch(args: argparse.Namespace):
     """
     pangenome = Pangenome()
     pangenome.add_file(args.pangenome)
+    logging.getLogger("PPanGGOLiN").info(f"rnas annootation {pangenome.status["rnasAnnotated"]}, seq {pangenome.status["rnaSequences"]}, fam {pangenome.status["rnaFamilySequences"]}")
     compute_neighbors_graph(
         pangenome,
         args.remove_high_copy_number,
         args.force,
         disable_bar=args.disable_prog_bar,
+        norna=args.norna,
     )
     write_pangenome(
         pangenome, pangenome.file, args.force, disable_bar=args.disable_prog_bar
@@ -322,6 +341,13 @@ def parser_graph(parser: argparse.ArgumentParser):
         help="Positive Number: Remove families having a number of copy of gene in a single genome "
         "above or equal to this threshold in at least one genome "
         "(0 or negative values are ignored).",
+    )
+    optional.add_argument(
+        "--norna",
+        required=False,
+        action="store_true",
+        default=False,
+        help="Use to computing RNA features in graph",
     )
 
 

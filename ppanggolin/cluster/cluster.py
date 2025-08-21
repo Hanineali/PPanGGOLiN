@@ -57,7 +57,7 @@ def check_pangenome_former_clustering(pangenome: Pangenome, force: bool = False)
             "do that, use --force (it will erase everything except annotation data in your HDF5 file!)"
         )
     elif pangenome.status["genesClustered"] == "inFile" and force:
-        erase_pangenome(pangenome, gene_families=True)
+        erase_pangenome(pangenome, gene_families=True, rna_families=True)
 
 # Clustering functions
 def check_pangenome_for_clustering(
@@ -607,23 +607,25 @@ def clustering(
             pangenome.status["defragmented"] = "Computed"
     rna_fam2seq = None
     rnas2fam = None
-    if not norna :
+    if not norna:
         with create_tmpdir(tmpdir, basename=dir_name_rna, keep_tmp=keep_tmp_files) as tmp_path_rna:
-            rna_fam_fasta,rna2fam_tsv = rna_fam_clustering(pangenome,tmp_path_rna)
-            rna_fam2seq = parse_rep_fasta(rna_fam_fasta)
-            rnas2fam = parse_rna_tsv(rna2fam_tsv)
-            #print(f"fam -> (rna,seq) {rna_fam2seq.items()}")
-            #print(f"rna -> fam {rnas2fam.items()}")
+            rna_fam_fasta, rna2fam_tsv = rna_fam_clustering(pangenome, tmp_path_rna)
+            if rna_fam_fasta and rna2fam_tsv:
+                rna_fam2seq = parse_rep_fasta(rna_fam_fasta)
+                rnas2fam = parse_rna_tsv(rna2fam_tsv)
+            else:
+                logging.info("RNA clustering skipped; continuing with gene families only.")
     else:
-        logging.getLogger("PPanGGOLiN").info(
-            "Skipping RNA clustering (either --norna is set or there are no RNAs)."
-        )
+        logging.info("Skipping RNA clustering (--norna).")
 
     read_fam2seq(pangenome, fam2seq)
     read_gene2fam(pangenome, genes2fam, disable_bar=disable_bar)
+
     if rna_fam2seq is not None and rnas2fam is not None:
         read_rna_fam2seq(pangenome, rna_fam2seq)
         read_rnas2fam(pangenome, rnas2fam)
+        pangenome.status["rnasClustered"] = "Computed"
+        pangenome.status["rnaFamilySequences"] = "Computed"
 
     pangenome.status["genesClustered"] = "Computed"
     pangenome.status["geneFamilySequences"] = "Computed"
