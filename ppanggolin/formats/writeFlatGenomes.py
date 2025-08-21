@@ -616,8 +616,76 @@ def get_organism_list(organisms_filt: str, pangenome: Pangenome) -> Set[Organism
     return organisms_list
 
 def feature_priority(feat):
-    # Intergenic or no DNA come first: 0, otherwise: 1
     return 0 if (hasattr(feat, "offset") or getattr(feat, "dna", None) is None) else 1
+
+def is_intergenic(feat) -> bool:
+    t = (getattr(feat, "type", "") or "").lower()
+    return ("intergenic" in t) or ("igr" in t)
+
+def is_overlap_marker(feat) -> bool:
+    """Zero-length intergenic that carries an 'offset' to trim next bases."""
+    seq = getattr(feat, "dna", None)
+    off = int(getattr(feat, "offset", 0) or 0)
+    return is_intergenic(feat) and (not seq) and (off > 0)
+
+def dedupe_internal_overlaps_in_join(seq: str, feat) -> tuple[str, int]:
+    """
+    Remove duplicated nucleotides that arise from overlapping segments inside a single
+    joined feature (e.g., frameshifted CDS annotated as join(a..b, b-1..c)).
+
+      - Determine block lengths from feat.coordinates (1-based inclusive).
+      - Compute the overlap between consecutive blocks (in genomic ascending order).
+      - Reconstruct 'seq' by splitting it according to the **sequence order** of blocks:
+          * '+' strand: [block1, block2, ...]
+          * '-' strand: [blockN, ..., block2, block1]  (because seq is typically RC of the concat)
+        and trimming, at each junction, exactly 'overlap' bases from the **start of the next block**.
+      - Return the de-duplicated sequence and the total number of bases dropped.
+
+    If coordinates are missing, a single block, or lengths don’t match, returns original seq.
+    """
+    coords = getattr(feat, "coordinates", None)
+    strand = getattr(feat, "strand", "+") or "+"
+    if not coords or len(coords) <= 1 or not seq:
+        return seq, 0
+
+    # Genomic order by start (1-based)
+    blocks = sorted(coords, key=lambda x: (x[0], x[1]))
+    lens = [(stop - start + 1) for start, stop in blocks]
+    total_len = sum(lens)
+    if total_len != len(seq):
+        return seq, 0
+
+    # Overlaps between consecutive blocks in genomic order
+    overlaps = []
+    for i in range(len(blocks) - 1):
+        prev_start, prev_stop = blocks[i]
+        next_start, next_stop  = blocks[i + 1]
+        ov = max(0, prev_stop - next_start + 1)  # positive only if there is overlap
+        overlaps.append(ov)
+
+    # Map to the order in which the sequence 'seq' is laid out
+    if (strand or "+") == "+":
+        lens_in_seq_order = lens
+        overlaps_in_seq_order = overlaps
+    else:
+        lens_in_seq_order = list(reversed(lens))
+        overlaps_in_seq_order = list(reversed(overlaps))
+
+    # Rebuild seq, trimming overlap from the start of each block after the first
+    parts = []
+    i = 0
+    dropped = 0
+    for bi, L in enumerate(lens_in_seq_order):
+        block_seq = seq[i:i+L]
+        i += L
+        if bi > 0:
+            ov = overlaps_in_seq_order[bi - 1]
+            if ov > 0:
+                block_seq = block_seq[ov:]
+                dropped += ov
+        parts.append(block_seq)
+
+    return "".join(parts), dropped
 
 def write_one_organism_fasta(
     organism: Organism,
@@ -625,43 +693,96 @@ def write_one_organism_fasta(
     compress: bool = False
 ):
     """
-    Write a single FASTA file containing all coding and intergenic regions
-    of `organism`. Each contig starts on a new line, with its own header.
+    Build a non-redundant linear sequence per contig by:
+      - adding real features (CDS/RNA/IGR with DNA)
+      - removing duplicated bases created by internal overlaps in join(...) features
+      - and applying trims carried by zero-length intergenics (offset>0)
+        across as many subsequent chunks as needed.
     """
+    logger = logging.getLogger("PPanGGOLiN")
     out_file = outdir / f"{organism.name}.fasta{'.gz' if compress else ''}"
+
     with write_compressed_or_not(out_file, compress=compress) as file_obj:
         for idx, contig in enumerate(organism.contigs):
+            contig_len = getattr(contig, "length", None)
+            logger.info(
+                f"Organism = {organism.name}, Contig {idx}, Name = {contig.name}, "
+                f"Len = {contig_len}, is_circular={getattr(contig, 'is_circular', False)}"
+            )
+
             if idx > 0:
                 file_obj.write('\n')
             file_obj.write(f">{organism.name}|{contig.name}\n")
 
-            feats = sorted(
-                list(contig.genes) + list(contig.RNAs) + list(contig.intergenics), key=lambda x: (x.start, feature_priority(x))
-            )
-            reconstructed_seq = ""
-            overlap = 0
+            # Gather and sort once:
+            feats = list(contig.genes) + list(contig.RNAs) + list(contig.intergenics)
 
-            for i, feat in enumerate(feats):
-                seq = feat.dna
+            def order_key(f):
+                # Ensure overlap markers are seen before any DNA-bearing features at the same start
+                return (f.start, 0 if is_overlap_marker(f) else 1, getattr(f, "stop", f.start))
 
-                if seq is not None:
-                    if overlap != 0:
-                        logging.getLogger("PPanGGOLiN").info(f"Applying overlap: Skipping first {overlap} bases of this sequence.")
-                        seq = seq[overlap:]
-                        reconstructed_seq += seq
-                        overlap = 0
+            feats_sorted = sorted(feats, key=order_key)
+
+            reconstructed = []
+            pending_trim = 0
+            total_trim_applied = 0
+            total_internal_overlap_dropped = 0  # NEW: how many nt we dropped inside join(...) features
+
+            for f in feats_sorted:
+                if is_overlap_marker(f):
+                    add = int(getattr(f, "offset", 0) or 0)
+                    pending_trim += add
+                    continue
+
+                seq = getattr(f, "dna", None)
+                if not seq:
+                    # Non-marker with no DNA: nothing to add, nothing to trim
+                    continue
+
+                # Fix internal overlaps inside a single joined feature (e.g. frameshift CDS)
+                fixed_seq, dropped = dedupe_internal_overlaps_in_join(seq, f)
+                if dropped:
+                    total_internal_overlap_dropped += dropped
+                    seq = fixed_seq
+
+                # Apply any pending inter-feature trims (from zero-length intergenics)
+                if pending_trim > 0:
+                    if pending_trim >= len(seq):
+                        # Consume whole chunk
+                        total_trim_applied += len(seq)
+                        pending_trim -= len(seq)
+                        continue
                     else:
-                        reconstructed_seq += seq
+                        # Trim the front and reset
+                        total_trim_applied += pending_trim
+                        seq = seq[pending_trim:]
+                        pending_trim = 0
 
-                else:
-                    if i + 1 < len(feats) and (feats[i+1].dna is not None):
-                        overlap = feat.offset
-            line_width = 60
-            for i in range(0, len(reconstructed_seq), line_width):
-                file_obj.write(f"{reconstructed_seq[i:i + line_width]}\n")
+                reconstructed.append(seq)
 
-    logging.getLogger("PPanGGOLiN").info("DONE writing all organisms' fasta file\n")
+            reconstructed_seq = "".join(reconstructed)
 
+            ref_len = len(getattr(contig, "dna", "") or "")
+            if ref_len == 0 and contig_len is not None:
+                ref_len = contig_len
+            diff = len(reconstructed_seq) - (ref_len or 0)
+
+            if pending_trim > 0:
+                logger.warning(
+                    f"{contig.name}: {pending_trim} bases of pending trim remained at end."
+                )
+
+            logger.info(
+                f"[CHECK] {contig.name}: reconstructed={len(reconstructed_seq)}, "
+                f"contig={ref_len}, diff={diff}, total_trim_applied={total_trim_applied}, "
+                f"internal_overlap_dropped={total_internal_overlap_dropped}"
+            )
+
+            # Write FASTA (wrap at 60 chars)
+            for i in range(0, len(reconstructed_seq), 60):
+                file_obj.write(reconstructed_seq[i:i+60] + "\n")
+
+    logger.info("DONE writing all organisms' fasta file\n")
 
 def write_one_org_igr_fasta(
         organism: Organism,
