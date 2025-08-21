@@ -20,7 +20,7 @@ import pandas as pd
 from ppanggolin.pangenome import Pangenome
 from ppanggolin.genome import Gene, RNA
 from ppanggolin.geneFamily import GeneFamily
-from ppanggolin.rnaFamily import rnaFamily
+from ppanggolin.rnaFamily import RNAFamily
 from ppanggolin.utils import (
     is_compressed,
     restricted_float,
@@ -497,9 +497,9 @@ def read_rna_fam2seq(pangenome, rna_fam_to_seq: Dict[str, Tuple[str, str]]):
         :param pangenome: Annotated pangenome
         :param rna_fam_to_seq: Dictionary which link families and sequences
         """
-    logging.getLogger("PPanGGolin").info("Adding rna sequences to rna families")
+    logging.getLogger("PPanGGoliN").info("Adding rna sequences to rna families")
     for family, (rep_id, sequence) in rna_fam_to_seq.items():
-        fam = rnaFamily(pangenome.max_rnaFam_id, family)
+        fam = RNAFamily(pangenome.max_rnaFam_id, family)
         fam.add_sequence(sequence)
         # fam.representative = rep_id (should be an instance of RNA and not a string)
         pangenome.add_rna_family(fam)
@@ -540,7 +540,7 @@ def read_rnas2fam(pangenome, rna_to_fam:Dict[str, str]):
         try:
             fam = pangenome.get_rna_family(family)
         except KeyError:  # Family not found so create and add
-            fam = rnaFamily(pangenome.max_rnaFam_id, family)
+            fam = RNAFamily(pangenome.max_rnaFam_id, family)
             pangenome.add_rna_family(fam)
         if link:  # doing the linking if the annotations are loaded.
             rna_obj = pangenome.get_rna(rna)
@@ -559,6 +559,7 @@ def clustering(
     identity: float = 0.8,
     mode: int = 1,
     force: bool = False,
+    norna:bool = False,
     disable_bar: bool = False,
     keep_tmp_files: bool = True,
 ):
@@ -604,18 +605,25 @@ def clustering(
             aln = align_rep(rep, tmp_path, cpu, coverage, identity)
             genes2fam, fam2seq = refine_clustering(tsv, aln, fam2seq)
             pangenome.status["defragmented"] = "Computed"
-
-    with create_tmpdir(tmpdir, basename=dir_name_rna, keep_tmp=keep_tmp_files) as tmp_path_rna:
-        rna_fam_fasta,rna2fam_tsv = rna_fam_clustering(pangenome,tmp_path_rna)
-        rna_fam2seq = parse_rep_fasta(rna_fam_fasta)
-        rnas2fam = parse_rna_tsv(rna2fam_tsv)
-        #print(f"fam -> (rna,seq) {rna_fam2seq.items()}")
-        #print(f"rna -> fam {rnas2fam.items()}")
+    rna_fam2seq = None
+    rnas2fam = None
+    if not norna :
+        with create_tmpdir(tmpdir, basename=dir_name_rna, keep_tmp=keep_tmp_files) as tmp_path_rna:
+            rna_fam_fasta,rna2fam_tsv = rna_fam_clustering(pangenome,tmp_path_rna)
+            rna_fam2seq = parse_rep_fasta(rna_fam_fasta)
+            rnas2fam = parse_rna_tsv(rna2fam_tsv)
+            #print(f"fam -> (rna,seq) {rna_fam2seq.items()}")
+            #print(f"rna -> fam {rnas2fam.items()}")
+    else:
+        logging.getLogger("PPanGGOLiN").info(
+            "Skipping RNA clustering (either --norna is set or there are no RNAs)."
+        )
 
     read_fam2seq(pangenome, fam2seq)
     read_gene2fam(pangenome, genes2fam, disable_bar=disable_bar)
-    read_rna_fam2seq(pangenome, rna_fam2seq)
-    read_rnas2fam(pangenome, rnas2fam)
+    if rna_fam2seq is not None and rnas2fam is not None:
+        read_rna_fam2seq(pangenome, rna_fam2seq)
+        read_rnas2fam(pangenome, rnas2fam)
 
     pangenome.status["genesClustered"] = "Computed"
     pangenome.status["geneFamilySequences"] = "Computed"
@@ -976,6 +984,7 @@ def launch(args: argparse.Namespace):
             coverage=args.coverage,
             identity=args.identity,
             mode=args.mode,
+            norna=args.norna,
             force=args.force,
             disable_bar=args.disable_prog_bar,
             keep_tmp_files=args.keep_tmp,
@@ -1069,6 +1078,13 @@ def parser_clust(parser: argparse.ArgumentParser):
         action="store_true",
         help="DO NOT Use the defragmentation strategy to link potential fragments "
         "with their original gene family.",
+    )
+    clust.add_argument(
+        "--norna",
+        required=False,
+        default=False,
+        action="store_true",
+        help="Use to avoid clustering RNA features."
     )
 
     read = parser.add_argument_group(title="Read clustering arguments")
