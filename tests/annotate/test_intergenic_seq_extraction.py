@@ -16,16 +16,16 @@ from ppanggolin.annotate.synta import process_genes_intergenics_seq
     "is_circular, genes, expected_calls",
     [
         # CASE 1: Linear Contig with One Intergenic Region
-        (False, [(1, 35), (65, 80)], [((36, 64), "gene_1 | gene_2")]),
+        (False, [(1, 35), (65, 80)], [((36, 64), "gene_1|gene_2")]),
 
         # CASE 2: Circular Contig with Wrap-Around Intergenic
-        (True, [(10, 25), (45, 60)], [((26, 44),"gene_1 | gene_2"), ([(61, 80),(1, 9)],"gene_2|gene_1")]),
+        (True, [(10, 25), (45, 60)], [((26, 44),"gene_1|gene_2"), ([(61, 80),(1, 9)],"gene_2|gene_1")]),
 
         # CASE 3: Genes Touching (No Intergenic Region)
-        (False, [(1, 50), (51, 80)], [((50, 51), "gene_1 | gene_2")]),
+        (False, [(1, 50), (51, 80)], [((50, 51), "gene_1|gene_2")]),
 
         # CASE 4: Overlapping Genes
-        (False, [(1, 65), (62, 80)], [((62, 65), "gene_1 | gene_2")]),
+        (False, [(1, 65), (62, 80)], [((62, 65), "gene_1|gene_2")]),
 
         # CASE 5: Border Intergenic Only
         (False, [(20, 80)], [((1, 19), "|gene_1")]),
@@ -34,7 +34,7 @@ from ppanggolin.annotate.synta import process_genes_intergenics_seq
         (False, [], []),
 
         # CASE 7: Circular Contig with Genes touching (No intergenic Region)
-        (True, [(1, 25), (26, 80)], [((25, 26), 'gene_1 | gene_2'), ((80, 1), 'gene_2|gene_1')]),
+        (True, [(1, 25), (26, 80)], [((25, 26), 'gene_1|gene_2'), ((80, 1), 'gene_2|gene_1')]),
 
         # CASE 8: Border end Intergenic
         (False, [(1, 55)], [((56,80), 'gene_1|')]),
