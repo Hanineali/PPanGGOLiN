@@ -7,10 +7,10 @@ from itertools import combinations_with_replacement
 
 from ppanggolin.pangenome import Edge
 from ppanggolin.geneFamily import GeneFamily
-from ppanggolin.rnaFamily import rnaFamily
+from ppanggolin.rnaFamily import RNAFamily
 from ppanggolin.genome import Gene, Organism, Contig, RNA
 from ppanggolin.region import Spot, Module
-from ppanggolin.rnaFamily import rnaFamily
+
 
 
 class TestGeneFamily:
@@ -296,7 +296,7 @@ class TestGeneFamily:
         """Tests get all the expected neighbor of the family in the graph"""
         for family in families:
             assert all(
-                isinstance(neighbor, (GeneFamily,rnaFamily)) for neighbor in family.neighbors
+                isinstance(neighbor, (GeneFamily,RNAFamily)) for neighbor in family.neighbors
             )
             expected_neighbors = set(
                 [edge.source for edge in edges if edge.target == family]

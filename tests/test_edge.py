@@ -6,7 +6,7 @@ from typing import Generator, Tuple, Union
 from ppanggolin.genome import Gene, Organism, Intergenic, RNA
 from ppanggolin.edge import Edge
 from ppanggolin.geneFamily import GeneFamily
-from ppanggolin.rnaFamily import rnaFamily
+from ppanggolin.rnaFamily import RNAFamily
 
 
 class TestEdge:
@@ -15,8 +15,8 @@ class TestEdge:
         yield Organism("organism")
 
     @pytest.fixture
-    def families_pair(self) -> Generator[Tuple[Union[GeneFamily,rnaFamily], Union[GeneFamily,rnaFamily]], None, None]:
-        yield GeneFamily(1, "family1"), rnaFamily(2, "rnafam2")
+    def families_pair(self) -> Generator[Tuple[Union[GeneFamily,RNAFamily], Union[GeneFamily,RNAFamily]], None, None]:
+        yield GeneFamily(1, "family1"), RNAFamily(2, "rnafam2")
 
     @pytest.fixture
     def features_pair(self, organism, families_pair) -> Generator[Tuple[Union[Gene,RNA], Union[Gene,RNA]], None, None]:
