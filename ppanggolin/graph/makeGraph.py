@@ -294,7 +294,6 @@ def launch(args: argparse.Namespace):
     """
     pangenome = Pangenome()
     pangenome.add_file(args.pangenome)
-    logging.getLogger("PPanGGOLiN").info(f"rnas annootation {pangenome.status["rnasAnnotated"]}, seq {pangenome.status["rnaSequences"]}, fam {pangenome.status["rnaFamilySequences"]}")
     compute_neighbors_graph(
         pangenome,
         args.remove_high_copy_number,
