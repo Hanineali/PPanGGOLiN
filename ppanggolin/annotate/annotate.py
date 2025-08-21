@@ -1419,49 +1419,52 @@ def correct_putative_overlaps(contigs: Iterable[Contig]):
 
     for contig in contigs:
         for gene in contig.genes:
+            """
             if gene.stop > len(contig):
                 # Adjust gene coordinates to handle circular contig
                 gene.start = 1  # Start gene at the beginning of the contig
+            """
+            new_coordinates = []
+            for start, stop in gene.coordinates:
 
-                new_coordinates = []
-                for start, stop in gene.coordinates:
-
-                    if start > len(contig):
-                        if len(new_coordinates) == 0:
-                            raise ValueError(
-                                f"First gene start position ({start}) is higher than contig "
-                                f"length ({len(contig)}). This case is not handled."
-                            )
-
-                        new_start = start - len(contig)
-                        new_stop = stop - len(contig)
-
-                        new_coordinates.append((new_start, new_stop))
-
-                        warn_msg = (
-                            f"Start position ({start}) for gene {gene.name} is higher than contig {contig.name}"
-                            f" length ({len(contig)}). New coordinate are {new_coordinates}"
+                if start > len(contig):
+                    if len(new_coordinates) == 0:
+                        raise ValueError(
+                            f"First gene start position ({start}) is higher than contig "
+                            f"length ({len(contig)}). This case is not handled."
                         )
-                        logging.getLogger("PPanGGOLiN").warning(warn_msg)
-                    elif stop > len(contig):
-                        # Handle overlapping gene
-                        new_stop = len(contig)
-                        next_stop = stop - len(contig)
-                        next_start = 1
 
-                        new_coordinates.append((start, new_stop))
-                        new_coordinates.append((next_start, next_stop))
+                    new_start = start - len(contig)
+                    new_stop = stop - len(contig)
 
-                    else:
-                        new_coordinates.append((start, stop))
+                    new_coordinates.append((new_start, new_stop))
 
-                    logging.getLogger("PPanGGOLiN").debug(
-                        f"Gene ({gene.ID} {gene.local_identifier}) coordinates ({gene.coordinates}) exceeded contig length ({len(contig)}). "
-                        f"This is likely because the gene overlaps the edge of the contig. "
-                        f"Adjusted gene coordinates: {new_coordinates}"
+                    warn_msg = (
+                        f"Start position ({start}) for gene {gene.name} is higher than contig {contig.name}"
+                        f" length ({len(contig)}). New coordinate are {new_coordinates}"
                     )
+                    logging.getLogger("PPanGGOLiN").warning(warn_msg)
+                elif stop > len(contig):
+                    # Handle overlapping gene
+                    new_stop = len(contig)
+                    next_stop = stop - len(contig)
+                    next_start = 1
 
-                gene.coordinates = new_coordinates
+                    new_coordinates.append((start, new_stop))
+                    new_coordinates.append((next_start, next_stop))
+                    gene.start = new_coordinates[0][0]
+                    gene.stop = new_coordinates[-1][1]
+
+                else:
+                    new_coordinates.append((start, stop))
+
+                logging.getLogger("PPanGGOLiN").debug(
+                    f"Gene ({gene.ID} {gene.local_identifier}) coordinates ({gene.coordinates}) exceeded contig length ({len(contig)}). "
+                    f"This is likely because the gene overlaps the edge of the contig. "
+                    f"Adjusted gene coordinates: {new_coordinates}"
+                )
+
+            gene.coordinates = new_coordinates
 
 
 def read_anno_file(
