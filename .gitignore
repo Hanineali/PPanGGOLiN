@@ -35,3 +35,4 @@ test.txt
 testingDataset/GBFF/GCF_003788895.1_sc110_genomic.gbff
 testingDataset/subset_ecoli/
 testingDataset/test.gbff.list
+.venv

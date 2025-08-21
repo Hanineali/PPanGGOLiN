@@ -184,7 +184,7 @@ def compute_neighbors_graph(
                             prev_feat, feature
                         )
                     # If the family is removed, store in temp_list
-                    if feature.family.removed:
+                    if feature.family.removed or feature.family is None: #skip temprary the family not found
                         if intergenic:
                             temp_list.append(intergenic)
                         temp_list.append(feature)
