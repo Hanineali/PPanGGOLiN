@@ -1444,8 +1444,8 @@ def write_pangenome_flat_files(
     spot_modules: bool = False,
     compress: bool = False,
     disable_bar: bool = False,
-    min_len:int | None = None,
-    max_len:int | None = None,
+    min_len: Optional[int] = None,
+    max_len: Optional[int] = None,
 ):
     """
     Main function to write flat files from pangenome
