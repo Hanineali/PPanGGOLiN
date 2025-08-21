@@ -56,6 +56,11 @@ class TestPangenome:
             "genesClustered",
             "defragmented",
             "geneFamilySequences",
+            # NEW RNA-related keys:
+            "rnasAnnotated",
+            "rnaSequences",
+            "rnasClustered",
+            "rnaFamilySequences",
             "neighborsGraph",
             "partitioned",
             "predictedRGP",
