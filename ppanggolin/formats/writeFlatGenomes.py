@@ -816,7 +816,6 @@ def write_one_org_igr_fasta(
             )
 
             for i, feat in enumerate(feats):
-                print(i, feat.ID)
                 seq = feat.dna
                 if seq is not None:
                     # Write the header for the intergenic region
@@ -976,13 +975,13 @@ def write_flat_genome_files(
         "need_gene_sequences": True,
         "need_rna_sequences": True,
         "need_intergenic_sequences": True,
-        "need_families": True,
-        "need_rna_families": True,
-        "need_partitions": True,
-        "need_rgp": True if pangenome.status["predictedRGP"] != "No" else False,
-        "need_spots": True if pangenome.status["spots"] != "No" else False,
-        "need_modules": True if pangenome.status["modules"] != "No" else False,
-        "need_graph": True if gff or table else False,
+        "need_families": table or proksee or gff,
+        "need_rna_families": table or proksee or gff,
+        "need_partitions": table or proksee or gff,
+        "need_rgp":pangenome.status.get("predictedRGP", "No") != "No",
+        "need_spots": pangenome.status.get("spots", "No") != "No",
+        "need_modules": pangenome.status.get("modules", "No") != "No",
+        "need_graph": gff or table,
         "need_metadata": add_metadata,
         "sources": metadata_sources,
     }
