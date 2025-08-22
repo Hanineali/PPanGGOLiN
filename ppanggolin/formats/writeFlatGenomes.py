@@ -113,20 +113,26 @@ def write_tsv_genome_file(
         # Add metadata
         gene_metadata = {
             f"gene_{key}": value
-            for key, value in gene.formatted_metadata_dict(metadata_sep).items()
+            for key, value in gene.formatted_metadata_dict_to_string(
+                metadata_sep
+            ).items()
         }
         gene_info.update(gene_metadata)
 
         family_metadata = {
             f"family_{key}": value
-            for key, value in gene.family.formatted_metadata_dict(metadata_sep).items()
+            for key, value in gene.family.formatted_metadata_dict_to_string(
+                metadata_sep
+            ).items()
         }
         gene_info.update(family_metadata)
 
         if need_regions and gene.RGP:
             rgp_metadata = {
                 f"rgp_{key}": value
-                for key, value in gene.RGP.formatted_metadata_dict(metadata_sep).items()
+                for key, value in gene.RGP.formatted_metadata_dict_to_string(
+                    metadata_sep
+                ).items()
             }
             gene_info.update(rgp_metadata)
 
@@ -301,7 +307,9 @@ def write_gff_file(
 
     organism_metadata = [
         (f"genome_{key}", value)
-        for key, value in organism.formatted_metadata_dict(metadata_sep).items()
+        for key, value in organism.formatted_metadata_dict_to_string(
+            metadata_sep
+        ).items()
     ]
 
     with write_compressed_or_not(outdir / f"{organism.name}.gff", compress) as outfile:
@@ -316,7 +324,9 @@ def write_gff_file(
         for contig in sorted_contigs:
             contig_metadata = [
                 (f"contig_{key}", value)
-                for key, value in contig.formatted_metadata_dict(metadata_sep).items()
+                for key, value in contig.formatted_metadata_dict_to_string(
+                    metadata_sep
+                ).items()
             ]
             attributes = (
                 [
@@ -388,13 +398,13 @@ def write_gff_file(
                         # adding attributes
                         gene_metadata = [
                             (f"gene_{key}", value)
-                            for key, value in feature.formatted_metadata_dict(
+                            for key, value in feature.formatted_metadata_dict_to_string(
                                 metadata_sep
                             ).items()
                         ]
                         family_metadata = [
                             (f"family_{key}", value)
-                            for key, value in feature.family.formatted_metadata_dict(
+                            for key, value in feature.family.formatted_metadata_dict_to_string(
                                 metadata_sep
                             ).items()
                         ]
@@ -410,13 +420,13 @@ def write_gff_file(
                         # adding attributes
                         gene_metadata = [
                             (f"rna_{key}", value)
-                            for key, value in feature.formatted_metadata_dict(
+                            for key, value in feature.formatted_metadata_dict_to_string(
                                 metadata_sep
                             ).items()
                         ]
                         family_metadata = [
                             (f"family_{key}", value)
-                            for key, value in feature.family.formatted_metadata_dict(
+                            for key, value in feature.family.formatted_metadata_dict_to_string(
                                 metadata_sep
                             ).items()
                         ]
@@ -466,7 +476,7 @@ def write_gff_file(
 
                     rgp_metadata = [
                         (f"rgp_{key}", value)
-                        for key, value in feature.formatted_metadata_dict(
+                        for key, value in feature.formatted_metadata_dict_to_string(
                             metadata_sep
                         ).items()
                     ]
@@ -861,7 +871,7 @@ def mp_write_genomes_file(
             **{
                 arg: kwargs[arg]
                 for arg in kwargs.keys()
-                & {"module_to_colors", "compress", "metadata_sep", "multigenics"}
+                & {"module_to_colors", "compress", "multigenics"}
             },
         )
 

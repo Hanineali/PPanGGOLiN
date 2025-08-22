@@ -114,7 +114,7 @@ def launch_aragorn(
                 or stop > contig_to_length[contig_name]
             ):
                 logging.warning(
-                    f"Aragorn gives non valide coordiates for a RNA gene in contig {contig_name}. "
+                    f"Aragorn gives non valide coordinates for a RNA gene in contig {contig_name}. "
                     f"Gene coordinates exceed contig length ({contig_to_length[contig_name]}): "
                     f"{line_data}. This RNA is ignored."
                 )
@@ -924,58 +924,4 @@ def annotate_organism(
 
     org = process_contigs(org, genes, contig_sequences, circular_contigs)
 
-    #print_intergenic_sequences(org,"GCF_000092665.1_ASM9266v1_genomic")
-    #print_genes_sequences(org,"GCF_000092665.1_ASM9266v1_genomic")
-
     return org
-
-""" The Functions below are used fo debugging """
-
-def print_intergenic_sequences(organism: Organism, target_organism: Optional[str] = None):
-    print(f" DEBUG: Checking intergenic sequences for organism: {organism.name}")
-    print(f"\n ORGANISM: {organism.name} - Intergenic Regions")
-    print("=" * 80)
-
-    for contig in organism.contigs:
-        print(f"\n Contig: {contig.name} | Circular: {contig.is_circular}")
-
-        # Check if contig has intergenic sequences
-        if not hasattr(contig, "intergenics"):
-            print(f" DEBUG: Contig `{contig.name}` has no `intergenics` attribute.")
-            continue
-
-        if not contig.intergenics:
-            print("  No intergenic regions found in this contig.")
-            continue
-
-        # Print intergenic details
-        for intergenic in contig.intergenics:
-            print(f"    Intergenic ID: {getattr(intergenic, 'ID', 'N/A')}")
-            print(f"      - Coordinates: {getattr(intergenic, 'coordinates', 'N/A')}")
-            print(f"      - Sequence Length: {len(getattr(intergenic, 'dna', '')) if intergenic.dna else 'N/A'}")
-            print(f"      - Border Intergenic: {getattr(intergenic, 'is_border', 'N/A')}")
-            print(f"      - Sequence: {intergenic.dna[:50] if intergenic.dna else 'N/A'}...")
-
-    print("=" * 80)
-
-def print_genes_sequences(organism: Organism, target_organism: Optional[str] = None):
-    """
-    Print all extracted intergenic sequences for a specific organism.
-
-    :param organism: Organism object containing contigs and intergenic regions.
-    :param target_organism: The organism ID for which intergenic sequences should be printed.
-    """
-    print(f"\n===== genes for Organism: {target_organism} =====")
-
-    for contig in organism.contigs:
-        print(f"\n Contig: {contig.name} | Circular: {contig.is_circular}")
-        all_features = sorted(list(contig.genes) + list(contig.RNAs), key=lambda x: x.start)
-
-        print(f"{len(all_features)}")
-
-        for gene in all_features:  # Iterate through intergenic regions
-            print(f"  Gene ID: {gene.ID}")
-            print(f"   - Coordinates: {gene.coordinates}")
-
-
-        print("\n" + "=" * 50)

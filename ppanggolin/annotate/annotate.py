@@ -21,6 +21,7 @@ from tables.path import check_name_validity, NaturalNameWarning
 from typing import Optional
 
 # local libraries
+from ppanggolin import genome
 from ppanggolin.annotate.synta import (
     annotate_organism,
     get_contigs_from_fasta_file,
@@ -482,7 +483,7 @@ def combine_contigs_metadata(
     all_tag_to_value = [
         (tag, value)
         for source_info in contig_to_metadata.values()
-        for (tag, value) in source_info.items()
+        for tag, value in source_info.items()
         if isinstance(value, str)
     ]
 
@@ -859,17 +860,17 @@ def read_org_gbff(
         all_features = sorted(
             list(contig.genes) + list(contig.RNAs), key=lambda x: x.start
         )
-        #print(f"Checking features for contig {contig.name}: {len(all_features)} genes found")
         process_genes_intergenics_seq(contig, all_features, contig_sequences[contig.name], organism, register_features = False)
-        #print_intergenic_sequences(organism,"GCF_000026905.1")
-        #print_genes_sequences(organism,"GCF_000026905.1")
 
     genome_metadata, contig_to_uniq_metadata = combine_contigs_metadata(
         contig_to_metadata
     )
-    organism.add_metadata(
-        metadata=Metadata(source="annotation_file", **genome_metadata)
-    )
+
+    if genome_metadata:
+        organism.add_metadata(
+            metadata=Metadata(source="annotation_file", **genome_metadata)
+        )
+
     for contig, metadata_dict in contig_to_uniq_metadata.items():
         contig.add_metadata(Metadata(source="annotation_file", **metadata_dict))
 
@@ -1024,6 +1025,11 @@ def read_org_gff(
                     has_fasta = True
                 elif line.startswith("sequence-region", 2, 17):
                     fields = [el.strip() for el in line.split()]
+                    if len(fields) != 4:
+                        raise Exception(
+                            "Pragma '##sequence-region' has an unexpected format. "
+                            f"Expecting the format '##sequence-region seqid start stop', and got the following: '{line.strip()}'"
+                        )
                     with contig_counter.get_lock():
                         contig = Contig(
                             contig_counter.value,
@@ -1452,8 +1458,6 @@ def correct_putative_overlaps(contigs: Iterable[Contig]):
 
                     new_coordinates.append((start, new_stop))
                     new_coordinates.append((next_start, next_stop))
-                    gene.start = new_coordinates[0][0]
-                    gene.stop = new_coordinates[-1][1]
 
                 else:
                     new_coordinates.append((start, stop))
@@ -1465,6 +1469,9 @@ def correct_putative_overlaps(contigs: Iterable[Contig]):
                 )
 
             gene.coordinates = new_coordinates
+
+            gene.start = new_coordinates[0][0]
+            gene.stop = new_coordinates[-1][1]
 
 
 def read_anno_file(
@@ -1713,7 +1720,7 @@ def get_gene_sequences_from_fastas(
         )
 
     elif pangenome.number_of_organisms < len(fasta_dict):
-        # Indicates that all organisms in the pangenome are present in the provided FASTA file,
+            # Indicates that all organisms in the pangenome are present in the provided FASTA file,
         # but additional genomes are also detected in the file.
         diff_genomes = len(fasta_dict) - pangenome.number_of_organisms
         logging.getLogger("PPanGGOLiN").warning(
@@ -1748,46 +1755,6 @@ def get_gene_sequences_from_fastas(
                     raise KeyError(msg)
     pangenome.status["geneSequences"] = "Computed"
     pangenome.status["rnaSequences"] = "Computed"
-
-""" Functions used for debugging """
-
-def print_intergenic_sequences(organism: Organism, target_organism: Optional[str] = None):
-
-    print(f"\n Intergenic Regions for Organism: {target_organism}")
-
-    for contig in organism.contigs:
-        print(f"\n Contig: {contig.name} | Circular: {contig.is_circular}")
-
-        for intergenic in contig.intergenics:  # Iterate through intergenic regions
-            print(f" Intergenic ID: {intergenic.ID}")
-            print(f"   - Coordinates: {intergenic.coordinates}")
-            print(f"   - Sequence Length: {len(intergenic.dna) if intergenic.dna else 'N/A'}")
-            print(f"   - Border Intergenic: {intergenic.is_border}")
-            print(f"   - Sequence: {intergenic.dna}")  # Print first 50 bp only
-
-        print("\n" + "=" * 50)
-
-def print_genes_sequences(organism: Organism, target_organism: Optional[str] = None):
-    """
-    Print all extracted intergenic sequences for a specific organism.
-
-    :param organism: Organism object containing contigs and intergenic regions.
-    :param target_organism: The organism ID for which intergenic sequences should be printed.
-    """
-    print(f"\n genes for Organism: {target_organism}")
-
-    for contig in organism.contigs:
-        print(f"\n Contig: {contig.name} | Circular: {contig.is_circular}")
-        all_features = sorted(list(contig.genes) + list(contig.RNAs), key=lambda x: x.start)
-
-        print(f"{len(all_features)}")
-
-        for gene in all_features:  # Iterate through intergenic regions
-            print(f" Gene ID: {gene.ID}")
-            print(f"   - Coordinates: {gene.coordinates}")
-
-
-        print("\n" + "=" * 50)
 
 
 def annotate_pangenome(
@@ -1945,6 +1912,17 @@ def launch(args: argparse.Namespace):
                     "You will be able to proceed with your analysis "
                     "ONLY if you provide the clustering results in the next step."
                 )
+
+            if pangenome.contig_lengths_unavailable():
+                raise ValueError(
+                    "Unable to determine contig lengths from the provided GFF files. "
+                    "Contig length must be specified using the ##sequence-region pragma. "
+                    "Additionally, no FASTA sequences were provided. "
+                    "As a result, contig lengths cannot be inferred.\n"
+                    "To resolve this, please provide a FASTA file using the '--fasta' option, "
+                    "or modify your GFF files to include sufficient information to deduce contig lengths."
+                )
+
         else:
             if args.fasta:
                 logging.getLogger("PPanGGOLiN").warning(
